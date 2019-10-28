@@ -40,7 +40,9 @@
       read-config-file
       (fn []
         #?(:clj  (try
-                   (edn/read-string (slurp "guardrails.edn"))
+                   (edn/read-string (slurp (or
+                                             (System/getProperty "guardrails.config")
+                                             "guardrails.edn")))
                    (catch Exception _ nil))
            :cljs nil))
 
