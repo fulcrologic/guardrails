@@ -1,0 +1,98 @@
+;; Copyright (c) George Lipov. All rights reserved.
+;; The use and distribution terms for this software are covered by the
+;; Eclipse Public License 2.0 (https://choosealicense.com/licenses/epl-2.0/)
+;; which can be found in the file LICENSE at the root of this distribution.
+;; By using this software in any fashion, you are agreeing to be bound by
+;; the terms of this license.
+;; You must not remove this notice, or any other, from this software.
+
+(ns ^:no-doc com.fulcrologic.guardrails.config
+  #?(:cljs (:require-macros com.fulcrologic.guardrails.config))
+  (:require [com.fulcrologic.guardrails.utils :as util]
+            #?@(:clj  [[clojure.edn :as edn]]
+                :cljs [[cljs.env :as cljs-env]])))
+
+;; This isn't particularly pretty, but it's how we avoid
+;; having ClojureScript as a required dependency on Clojure
+#?(:clj (try
+          (do
+            (ns-unalias (find-ns 'com.fulcrologic.guardrails.utils) 'cljs-env)
+            (require '[cljs.env :as cljs-env]))
+          (catch Exception _ (require '[com.fulcrologic.guardrails.stubs.cljs-env :as cljs-env]))))
+
+(def default-config
+  {;; Generates standard `defn` function definitions
+   ;; by default. If you require composability with other
+   ;; `defn`-like macros, you can have Ghostwheel desugar to
+   ;; them instead by setting the macro name as a string here.
+   :defn-macro nil
+
+   ;; Nilable map of Expound configuration options.
+   ;; If not nil, the spec printer will be set to
+   ;; expound's with the given configuration options.
+   :expound    {:show-valid-values? true
+                :print-specs?       true}})
+
+(let [*config-cache
+      (atom {::timestamp 0
+             ::value     nil})
+
+      read-config-file
+      (fn []
+        #?(:clj  (try
+                   (edn/read-string (slurp "guardrails.edn"))
+                   (catch Exception _ nil))
+           :cljs nil))
+
+      reload-config
+      (fn []
+        ;#?(:clj (.println System/err (get @cljs-env/*compiler* :options))) ; DEBUG
+        (let [config (let [cljs-compiler-config
+                           (when cljs-env/*compiler*
+                             (get-in @cljs-env/*compiler* [:options :external-config :guardrails]))]
+                       (when (not #?(:clj (= (System/getProperty "guardrails.enabled") "false") :cljs false))
+                         (merge {}
+                           (read-config-file)
+                           cljs-compiler-config)))]
+          ;#?(:clj (.println System/err config)) ; DEBUG
+          config))]
+
+  (defn get-env-config
+    ([]
+     (get-env-config true))
+    ([cache?]
+     (if (or (not cache?)
+           #?(:clj (= (System/getProperty "guardrails.cache") "false")))
+       (reload-config)
+       (let [now (identity #?(:clj (System/currentTimeMillis) :cljs (js/Date.now)))]
+         (if (< (- now (::timestamp @*config-cache))
+               2000)
+           (::value @*config-cache)
+           (::value (reset! *config-cache {::timestamp now
+                                           ::value     (reload-config)}))))))))
+
+(defn get-base-config-fn
+  "Base config is defaults + env config."
+  ([]
+   (get-base-config-fn true))
+  ([cache?]
+   (->> (get-env-config cache?)
+     (merge default-config))))
+
+(defmacro get-base-config-macro
+  ([]
+   (get-base-config-fn))
+  ([cache?]
+   (get-base-config-fn cache?)))
+
+(defn merge-config [env & meta-maps]
+  (let [config (->> (apply merge-with
+                      (fn [a b]
+                        (if (every? map? [a b])
+                          (merge a b)
+                          b))
+                      (get-base-config-fn)
+                      (util/get-ns-meta env)
+                      meta-maps)
+                 (into {}))]
+    config))

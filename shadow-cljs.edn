@@ -1,0 +1,18 @@
+{:deps   {:aliases [:test :dev :workspaces]}
+ :nrepl  {:port 9000}
+ :builds {:test     {:target           :browser-test
+                     :test-dir         "resources/public/js/test"
+                     :ns-regexp        "-spec$"
+                     :compiler-options {:static-fns      false
+                                        :external-config {:guardrails {:throw? false}}}
+                     :devtools         {:http-port          9002
+                                        :http-resource-root "public"
+                                        :http-root          "resources/public/js/test"}}
+
+          :ci-tests {:target           :karma
+                     :compiler-options {:static-fns      false
+                                        :external-config {:guardrails {:throw? true}}}
+                     :js-options       {:js-provider :shadow}
+                     :output-to        "target/ci.js"
+                     :ns-regexp        "-spec$"}}}
+

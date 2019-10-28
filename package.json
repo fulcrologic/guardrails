@@ -1,0 +1,18 @@
+{
+  "name": "guardrails",
+  "version": "1.0.0",
+  "description": "Tests",
+  "main": "index.js",
+  "directories": {},
+  "devDependencies": {
+    "karma": "3.1.4",
+    "karma-chrome-launcher": "2.2.0",
+    "karma-cljs-test": "0.1.0",
+    "karma-firefox-launcher": "1.1.0",
+    "shadow-cljs": "2.8.67"
+  },
+  "author": "Tony Kay",
+  "license": "MIT",
+  "dependencies": {
+  }
+}

@@ -1,0 +1,14 @@
+= Guardrails
+
+image:https://img.shields.io/clojars/v/com.fulcrologic/guardrails.svg[link=https://clojars.org/com.fulcrologic/guardrails]
+
+This library is a middle ground between the features of raw Clojure spec and George Lipov's Ghostwheel. I
+personally wanted the following features, so I implemented them. Much of the source code in this
+library is directly from https://github.com/gnl/ghostwheel[Ghostwheel].
+
+== Copyright and License
+
+The new code in this library is copyrighted by Fulcrologic, LLC.  The code derived from Ghostwheel is
+by George Lipov and follows the ownership/copyright of that library.
+
+This library follows Ghostwheel's original license: Eclipse public license version 2.0.
