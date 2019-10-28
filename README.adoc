@@ -2,13 +2,114 @@
 
 image:https://img.shields.io/clojars/v/com.fulcrologic/guardrails.svg[link=https://clojars.org/com.fulcrologic/guardrails]
 
-This library is a middle ground between the features of raw Clojure spec and George Lipov's Ghostwheel. I
-personally wanted the following features, so I implemented them. Much of the source code in this
-library is directly from https://github.com/gnl/ghostwheel[Ghostwheel].
+This library is a middle ground between the features of raw Clojure spec and George Lipov's Ghostwheel.
+Much of the source code in this library is directly from https://github.com/gnl/ghostwheel[Ghostwheel].
+
+I personally wanted the following features, so I implemented them:
+
+- The ability to use a simple DSL to declare the spec with a function (take from Ghostwheel). See that library's docs
+for *syntax* of `>defn`, `>defn`, etc.
+- The ability to control when specs are actually emitted separate from checking (to control build size in cljs)
+- No reliance on generative testing facilities/checkers. No orchestra/instrument stuff.
+- Good output when a function receives or emits an incorrect value.
+- The ability to control if a spec failure causes a throw (instrument always throws), because a lot of the time
+during development your spec is just wrong, and crashing your program is very inconvenient. You just want a log message
+to make you aware.
+
+This library does *not* include any other features from Ghostwheel:
+
+* Generative testing stuff.
+* Tracing.
+* Side-effect detection/warning.
+
+It basically makes it possible to use specs as a loose but informative (even advisory) type system during development
+so you can better see where you are making mistakes as you make them, without affecting production build size
+or performance.
+
+== Usage
+
+1. Add this library to your dependencies
+2. Create `guardrails.edn` in your project root with at least an empty map in it. See Configuring below.
+3. Enable it (see Enabling below)
+4. Define functions using the expanded notation:
+
+```
+(ns my.app
+  (:require
+    [clojure.spec.alpha :as s]
+    [com.fulcrologic.guardrails.core :refer [>defn => |]]))
+
+;; Spec is just an extra vector after the arg list
+(>defn iadd
+  "Normal docstring"
+  [a b] ; args
+  [int? int? => int?] ; spec
+  (+ a b))
+
+;; Each arity gets its own spec:
+(>defn multi-arity
+  ([a]
+   [int? => int]
+   (inc a))
+  ([a b]
+   [int? int? => (s/tuple int? int?)]
+   [(inc a) (inc b)]))
+```
+
+And then depending on your configuration mis-calling these functions will:
+
+* Do nothing special if guardrails is disabled. In that case `>defn` is identical to `defn`.
+* Log messages on mis-use (if enabled, but throw is turned off)
+* Throw an exception on mis-use (if enabled).
+
+See https://github.com/gnl/ghostwheel#the-gspec-syntax[Ghostwheel's documentation] for a full explanation of the DSL for specs.
+
+== Enabling
+
+The JVM option `-Dguardrails.enabled=true` should be used to turn on
+guardrails. When not defined `>defn` will emit exactly what `defn` would.
+
+You may also enable it in cljs in your shadow-cljs config
+(see Configuration...adding even an empty config map will enable it).
+
+== Configuration
+
+The default config goes in top of project as `guardrails.edn`:
+
+```
+{
+ ; what to emit instead of defn, if you have another defn macro
+ :defn-macro nil
+
+ ;; Nilable map of Expound configuration options.
+ :expound    {:show-valid-values? true
+              :print-specs?       true}
+
+ ;; should an fspec be emitted for functions
+ :emit-spec? true
+
+ ;; should a spec failure on args or ret throw an execption?
+ ;; (always logs an informative message)
+ :throw?     false}
+```
+
+You can override the config file *name* using JVM option
+`-Dguardrails.config=filename`.
+In your shadow-cljs config file you can override settings via the `[:compiler-options :external-config :guardrails]`
+config path of a build:
+
+```
+...
+     :app  {:target            :browser
+            :dev               {:compiler-options
+                                {:external-config {:guardrails {:throw? false}}
+                                 :closure-defines {'goog.DEBUG true}}}
+...
+```
 
 == Copyright and License
 
-The new code in this library is copyrighted by Fulcrologic, LLC.  The code derived from Ghostwheel is
-by George Lipov and follows the ownership/copyright of that library.
+The code taken from Ghostwheel is by George Lipov and follows the ownership/copyright of that library.
+The modifications in this library are copyrighted by Fulcrologic, LLC.
 
 This library follows Ghostwheel's original license: Eclipse public license version 2.0.
