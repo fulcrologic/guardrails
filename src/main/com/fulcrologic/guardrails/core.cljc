@@ -722,10 +722,7 @@
 
   `name` can be a symbol or a qualified keyword, depending on whether the
   fspec is meant to be registered as a top-level fspec (=> s/fdef fn-sym
-  ...) or used in other specs (=> s/def ::spec-keyword (s/fspec ...)).
-
-  When defining global fspecs, instrumentation can be directly enabled by
-  setting the `^::g/instrument` or `^::g/outstrument` metadata on the symbol."
+  ...) or used in other specs (=> s/def ::spec-keyword (s/fspec ...)). "
   {:arglists '([name [params*] gspec]
                [name ([params*] gspec) +])}
   [& forms]
