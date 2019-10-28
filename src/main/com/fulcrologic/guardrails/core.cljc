@@ -52,9 +52,11 @@
           (catch Exception _ (require '[com.fulcrologic.guardrails.stubs.ana-api :as ana-api]))))
 
 (let [{::keys [expound report-output]} (cfg/get-base-config-macro)]
-  #?(:clj  (do (alter-var-root #'s/*explain-out*
-                 (constantly (exp/custom-printer expound))))
-     :cljs (do (set! s/*explain-out* (exp/custom-printer expound)))))
+  #?(:clj  (when expound
+             (alter-var-root #'s/*explain-out*
+               (constantly (exp/custom-printer expound))))
+     :cljs (when expound
+             (set! s/*explain-out* (exp/custom-printer expound)))))
 
 
 ;; Borrowed from https://github.com/bhb/expound/issues/152#issuecomment-475621181
