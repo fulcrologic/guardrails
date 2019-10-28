@@ -52,7 +52,9 @@
         (let [config (let [cljs-compiler-config
                            (when cljs-env/*compiler*
                              (get-in @cljs-env/*compiler* [:options :external-config :guardrails]))]
-                       (when #?(:clj (System/getProperty "guardrails.enabled") :cljs false)
+                       (when #?(:clj (or
+                                       cljs-compiler-config
+                                       (System/getProperty "guardrails.enabled")) :cljs false)
                          (merge {}
                            (read-config-file)
                            cljs-compiler-config)))]
