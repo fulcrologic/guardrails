@@ -13,13 +13,10 @@
 
 (comment
   (>defn f
-    ([a b]
-     [int? int? => int?]
-     (+ a b))
-    ([i]
-     [int? => int?]
-     (+ 1 i)))
-  (f "22")
+    [[x y z]]
+    [(s/coll-of int?) => int?]
+    (+ x y z))
+  (f [1 2 3])
   (macroexpand-1 '(>defn f [i] [int? => int?]
                     42))
   )

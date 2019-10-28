@@ -577,31 +577,40 @@
                                     :prepost+body [(-> body val :prepost)
                                                    (-> body val :body)]
                                     :body [nil (val body)])
-        process-arg (fn [[arg-type arg]]
-                      (as-> arg arg
-                        (case arg-type
-                          :sym [arg-type arg]
-                          :seq [arg-type (update arg :as #(or % {:as :as :sym (gensym "arg_")}))]
-                          :map [arg-type (update arg :as #(or % (gensym "arg_")))])))
+        process-arg   (fn [[arg-type arg]]
+                        (as-> arg arg
+                          (case arg-type
+                            :sym [arg-type arg]
+                            :seq [arg-type (update arg :as #(or % {:as :as :sym (gensym "arg_")}))]
+                            :map [arg-type (update arg :as #(or % (gensym "arg_")))])))
         ;; NOTE: usage of extract-arg isn't elegant, there's duplication, refactor
-        extract-arg (fn [[arg-type arg]]
-                      (case arg-type
-                        :sym arg
-                        :seq (get-in arg [:as :sym])
-                        :map (:as arg)
-                        nil))
+        extract-arg   (fn [[arg-type arg]]
+                        (case arg-type
+                          :sym arg
+                          :seq (get-in arg [:as :sym])
+                          :map (:as arg)
+                          nil))
         {:keys [file line]} #?(:clj  (if (cljs-env? env)
                                        (meta fn-name)
                                        {:file *file*
                                         :line (some-> env :form meta :line)})
                                :cljs {})
-        unform-arg  #(->> % (s/unform ::binding-form) unscrew-vec-unform)
-        reg-args    (->> args :args (map process-arg))
-        var-arg     (some-> args :varargs :form process-arg)
-        arg-list    (vec (concat (map unform-arg reg-args)
-                           (when var-arg ['& (unform-arg var-arg)])))
-        body-forms  orig-body-forms
-        where       (str file ":" line " " fn-name "'s")]
+        unform-arg    #(->> % (s/unform ::binding-form) unscrew-vec-unform)
+        reg-args      (->> args :args (mapv process-arg))
+        arg->sym      #(let [f (into {} [%])]
+                         (or
+                           (:sym f)
+                           (some-> f :seq :as :sym)
+                           (some-> f :map :as)))
+        reg-arg-names (mapv arg->sym reg-args)
+        var-arg       (some-> args :varargs :form process-arg)
+        arg-list      (vec (concat (map unform-arg reg-args)
+                             (when var-arg ['& (unform-arg var-arg)])))
+        sym-arg-list  (if var-arg
+                        (conj reg-arg-names '& (arg->sym var-arg))
+                        reg-arg-names)
+        body-forms    orig-body-forms
+        where         (str file ":" line " " fn-name "'s")]
     `(~@(remove nil? [arg-list prepost])
        (let [{argspec# :args
               retspec# :ret} ~fspec]
@@ -609,7 +618,7 @@
            (run-check {:for        :args
                        :fn-name    ~where
                        :emit-spec? ~emit-spec?
-                       :throw?     ~throw?} argspec# ~arg-list))
+                       :throw?     ~throw?} argspec# ~sym-arg-list))
          (let [ret# (do
                       ~@body-forms)]
            (when retspec#
