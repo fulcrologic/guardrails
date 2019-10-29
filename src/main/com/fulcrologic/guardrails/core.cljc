@@ -562,7 +562,11 @@
         (str "\n" (timbre/stacktrace err {}))))))
 
 (defn run-check [args? {:keys [log-level vararg? throw? fn-name]} spec value]
-  (let [specable-args   (if (and args? vararg?) (into (vec (butlast value)) (flatten (seq (last value)))) value)
+  (let [vargs?          (and args? vararg?)
+        varg            (if vargs? (last (seq value)) nil)
+        specable-args   (if vargs?
+                          (if (map? varg) (into (vec (butlast value)) (flatten (seq varg))) (into (vec (butlast value)) (seq varg)))
+                          value)
         valid-exception (atom nil)]
     (try
       (when-not (s/valid? spec specable-args)
@@ -579,7 +583,7 @@
 
 (defn- process-defn-body
   [cfg fspec args+gspec+body]
-  (let [{:keys                       [env fn-name]
+  (let [{:keys                                 [env fn-name]
          {:keys [throw? emit-spec? log-level]} :config} cfg
         {:keys [args body]} args+gspec+body
         [prepost orig-body-forms] (case (key body)
@@ -620,7 +624,7 @@
         body-forms    orig-body-forms
         where         (str file ":" line " " fn-name "'s")
         argspec       (gensym "argspec")
-        opts          {:fn-name where :emit-spec? emit-spec?
+        opts          {:fn-name   where :emit-spec? emit-spec?
                        :log-level log-level :throw? throw? :vararg? (boolean var-arg)}
         args-check    `(when ~argspec (run-check true ~opts ~argspec ~sym-arg-list))
         retspec       (gensym "retspec")

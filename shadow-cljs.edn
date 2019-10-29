@@ -1,4 +1,4 @@
-{:deps   {:aliases [:test :dev :workspaces]}
+{:deps   {:aliases [:test :dev]}
  :nrepl  {:port 9000}
  :builds {:test     {:target           :browser-test
                      :test-dir         "resources/public/js/test"

@@ -58,6 +58,10 @@
   [int? (s/* int?) => int?]
   (+ x a b))
 
+(>defn vararg-seq [& targets]
+  [(s/* vector?) => vector?]
+  (into [] (seq targets)))
+
 (specification "General transformed functions"
   (assertions
     "fixed arity, recursive"
@@ -72,4 +76,6 @@
     (kw-func :a 1 :b 2) => 3
     (kw-func2 100 :a 1 :b 2) => 103
     "seq destructuring on vararg"
-    (seq-func 100 1 2) => 103))
+    (seq-func 100 1 2) => 103
+    "vararg of sequences"
+    (vararg-seq [:a 1] [:b 2]) => [[:a 1] [:b 2]]))
