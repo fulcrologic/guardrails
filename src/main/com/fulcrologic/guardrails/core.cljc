@@ -51,12 +51,12 @@
             (require '[cljs.analyzer.api :as ana-api]))
           (catch Exception _ (require '[com.fulcrologic.guardrails.stubs.ana-api :as ana-api]))))
 
-(let [{::keys [expound report-output]} (cfg/get-base-config-macro)]
-  #?(:clj  (when expound
-             (alter-var-root #'s/*explain-out*
-               (constantly (exp/custom-printer expound))))
-     :cljs (when expound
-             (set! s/*explain-out* (exp/custom-printer expound)))))
+#_(let [{::keys [expound report-output]} (cfg/get-base-config-macro)]
+    #?(:clj  (when expound
+               (alter-var-root #'s/*explain-out*
+                 (constantly (exp/custom-printer expound))))
+       :cljs (when expound
+               (set! s/*explain-out* (exp/custom-printer expound)))))
 
 
 ;; Borrowed from https://github.com/bhb/expound/issues/152#issuecomment-475621181
@@ -561,20 +561,26 @@
       (when-let [err ?err]
         (str "\n" (timbre/stacktrace err {}))))))
 
-(defn run-check [args? {:keys [vararg? throw? fn-name]} spec value]
-  (let [specable-args (if (and args? vararg?) (into (vec (butlast value)) (flatten (seq (last value)))) value)]
-    (when-not (s/valid? spec specable-args)
-      (let [config  (assoc timbre/*config* :output-fn output-fn)
-            problem (exp/expound-str spec specable-args)]
-        (if throw?
-          (throw (ex-info problem {:fn-name (str fn-name)}))
-          (log/log* config :error (str fn-name (if args? " argument list" " return type") "\n") problem)))))
+(defn run-check [args? {:keys [log-level vararg? throw? fn-name]} spec value]
+  (let [specable-args   (if (and args? vararg?) (into (vec (butlast value)) (flatten (seq (last value)))) value)
+        valid-exception (atom nil)]
+    (try
+      (when-not (s/valid? spec specable-args)
+        (let [config  (assoc timbre/*config* :output-fn output-fn)
+              problem (exp/expound-str spec specable-args)]
+          (log/log* config (or log-level :error) (str fn-name (if args? " argument list" " return type") "\n") problem)
+          (when throw?
+            (reset! valid-exception (ex-info problem {:fn-name (str fn-name)})))))
+      (catch #?(:cljs :default :clj Throwable) e
+        (log/error e "BUG: Internal error in expound or clojure spec.")))
+    (when @valid-exception
+      (throw @valid-exception)))
   nil)
 
 (defn- process-defn-body
   [cfg fspec args+gspec+body]
   (let [{:keys                       [env fn-name]
-         {:keys [throw? emit-spec?]} :config} cfg
+         {:keys [throw? emit-spec? log-level]} :config} cfg
         {:keys [args body]} args+gspec+body
         [prepost orig-body-forms] (case (key body)
                                     :prepost+body [(-> body val :prepost)
@@ -595,7 +601,7 @@
                           nil))
         {:keys [file line]} (if (cljs-env? env)
                               (meta fn-name)
-                              {:file *file*
+                              {:file #?(:clj *file* :cljs "N/A")
                                :line (some-> env :form meta :line)})
         unform-arg    #(->> % (s/unform ::binding-form) unscrew-vec-unform)
         reg-args      (->> args :args (mapv process-arg))
@@ -614,7 +620,8 @@
         body-forms    orig-body-forms
         where         (str file ":" line " " fn-name "'s")
         argspec       (gensym "argspec")
-        opts          {:fn-name where :emit-spec? emit-spec? :throw? throw? :vararg? (boolean var-arg)}
+        opts          {:fn-name where :emit-spec? emit-spec?
+                       :log-level log-level :throw? throw? :vararg? (boolean var-arg)}
         args-check    `(when ~argspec (run-check true ~opts ~argspec ~sym-arg-list))
         retspec       (gensym "retspec")
         ret           (gensym "ret")
