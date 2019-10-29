@@ -561,13 +561,14 @@
       (when-let [err ?err]
         (str "\n" (timbre/stacktrace err {}))))))
 
-(defn run-check [{:keys [for throw? fn-name]} spec value]
-  (when-not (s/valid? spec value)
-    (let [config  (assoc timbre/*config* :output-fn output-fn)
-          problem (exp/expound-str spec value)]
-      (if throw?
-        (throw (ex-info problem {:fn-name (str fn-name)}))
-        (log/log* config :error (str fn-name (if (= for :args) " argument list" " return type") "\n") problem))))
+(defn run-check [args? {:keys [vararg? throw? fn-name]} spec value]
+  (let [specable-args (if (and args? vararg?) (into (vec (butlast value)) (flatten (seq (last value)))) value)]
+    (when-not (s/valid? spec specable-args)
+      (let [config  (assoc timbre/*config* :output-fn output-fn)
+            problem (exp/expound-str spec specable-args)]
+        (if throw?
+          (throw (ex-info problem {:fn-name (str fn-name)}))
+          (log/log* config :error (str fn-name (if args? " argument list" " return type") "\n") problem)))))
   nil)
 
 (defn- process-defn-body
@@ -592,11 +593,10 @@
                           :seq (get-in arg [:as :sym])
                           :map (:as arg)
                           nil))
-        {:keys [file line]} #?(:clj  (if (cljs-env? env)
-                                       (meta fn-name)
-                                       {:file *file*
-                                        :line (some-> env :form meta :line)})
-                               :cljs {})
+        {:keys [file line]} (if (cljs-env? env)
+                              (meta fn-name)
+                              {:file *file*
+                               :line (some-> env :form meta :line)})
         unform-arg    #(->> % (s/unform ::binding-form) unscrew-vec-unform)
         reg-args      (->> args :args (mapv process-arg))
         arg->sym      #(let [f (into {} [%])]
@@ -609,26 +609,32 @@
         arg-list      (vec (concat (map unform-arg reg-args)
                              (when var-arg ['& (unform-arg var-arg)])))
         sym-arg-list  (if var-arg
-                        (conj reg-arg-names '& (arg->sym var-arg))
+                        (conj reg-arg-names (arg->sym var-arg))
                         reg-arg-names)
         body-forms    orig-body-forms
-        where         (str file ":" line " " fn-name "'s")]
+        where         (str file ":" line " " fn-name "'s")
+        argspec       (gensym "argspec")
+        opts          {:fn-name where :emit-spec? emit-spec? :throw? throw? :vararg? (boolean var-arg)}
+        args-check    `(when ~argspec (run-check true ~opts ~argspec ~sym-arg-list))
+        retspec       (gensym "retspec")
+        ret           (gensym "ret")
+        ret-check     `(when ~retspec (run-check false ~opts ~retspec ~ret))
+        real-function `(fn ~arg-list ~@body-forms)
+        f             (gensym "f")
+        call          (if (boolean var-arg)
+                        `(cond
+                           (map? ~(last sym-arg-list)) (apply ~f ~@(butlast sym-arg-list) (apply concat (last ~sym-arg-list)))
+                           (seq ~(last sym-arg-list)) (apply ~f ~@sym-arg-list)
+                           :else (~f ~@(butlast sym-arg-list)))
+                        `(~f ~@sym-arg-list)
+                        )]
     `(~@(remove nil? [arg-list prepost])
-       (let [{argspec# :args
-              retspec# :ret} ~fspec]
-         (when argspec#
-           (run-check {:for        :args
-                       :fn-name    ~where
-                       :emit-spec? ~emit-spec?
-                       :throw?     ~throw?} argspec# ~sym-arg-list))
-         (let [ret# (do
-                      ~@body-forms)]
-           (when retspec#
-             (run-check {:for        :ret
-                         :fn-name    ~where
-                         :emit-spec? ~emit-spec?
-                         :throw?     ~throw?} retspec# ret#))
-           ret#)))))
+       (let [{~argspec :args ~retspec :ret} ~fspec]
+         ~args-check
+         (let [~f ~real-function
+               ~ret ~call]
+           ~ret-check
+           ~ret)))))
 
 (defn- generate-defn
   [forms private env]

@@ -33,7 +33,7 @@ or performance.
 3. Enable it (see Enabling below)
 4. Define functions using the expanded notation:
 
-```
+```clj
 (ns my.app
   (:require
     [clojure.spec.alpha :as s]
@@ -76,7 +76,7 @@ You may also enable it in cljs in your shadow-cljs config
 
 The default config goes in top of project as `guardrails.edn`:
 
-```
+```clj
 {
  ; what to emit instead of defn, if you have another defn macro
  :defn-macro nil
@@ -98,7 +98,7 @@ You can override the config file *name* using JVM option
 In your shadow-cljs config file you can override settings via the `[:compiler-options :external-config :guardrails]`
 config path of a build:
 
-```
+```clj
 ...
      :app  {:target            :browser
             :dev               {:compiler-options
