@@ -1,6 +1,7 @@
 = Guardrails
 
 image:https://img.shields.io/clojars/v/com.fulcrologic/guardrails.svg[link=https://clojars.org/com.fulcrologic/guardrails]
+image:https://circleci.com/gh/fulcrologic/guardrails/tree/master.svg?style=svg["CircleCI", link="https://circleci.com/gh/fulcrologic/guardrails/tree/master"]
 
 This library is a middle ground between the features of raw Clojure spec and George Lipov's Ghostwheel.
 Much of the source code in this library is directly from https://github.com/gnl/ghostwheel[Ghostwheel].
