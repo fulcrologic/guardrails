@@ -9,15 +9,15 @@
 
 (ns com.fulcrologic.guardrails.core
   #?(:cljs (:require-macros com.fulcrologic.guardrails.core))
-  (:require [clojure.string :as string]
-            [clojure.set :refer [union difference map-invert]]
-            [clojure.walk :as walk]
-            [clojure.spec.alpha :as s]
-            [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs]]
-            [com.fulcrologic.guardrails.config :as cfg]
-            [taoensso.timbre :as log]
-            [expound.alpha :as exp]
-            [taoensso.timbre :as timbre]))
+  (:require
+    #?@(:clj [[clojure.set :refer [union difference map-invert]]
+              [clojure.walk :as walk]
+              [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs]]
+              [com.fulcrologic.guardrails.config :as cfg]])
+    [clojure.string :as string]
+    [taoensso.timbre :as log]
+    [clojure.spec.alpha :as s]
+    [expound.alpha :as exp]))
 
 ;; It doesn't actually matter what these are bound to, they are stripped by
 ;; the macros they're used in and never end up in the final code. This is just
@@ -25,6 +25,37 @@
 (def => :ret)
 (def | :st)
 (def <- :gen)
+
+;; runtime checking (both clj and cljs
+(defn- output-fn [data]
+  (let [{:keys [level ?err msg_ ?ns-str ?file hostname_
+                timestamp_ ?line]} data]
+    (str
+      (string/upper-case (name level)) " "
+      (force msg_)
+      (when-let [err ?err]
+        (str "\n" (log/stacktrace err {}))))))
+
+(defn run-check [args? {:keys [log-level vararg? throw? fn-name]} spec value]
+  (let [vargs?          (and args? vararg?)
+        varg            (if vargs? (last (seq value)) nil)
+        specable-args   (if vargs?
+                          (if (map? varg) (into (vec (butlast value)) (flatten (seq varg))) (into (vec (butlast value)) (seq varg)))
+                          value)
+        valid-exception (atom nil)]
+    (try
+      (when-not (s/valid? spec specable-args)
+        (let [config  (assoc log/*config* :output-fn output-fn)
+              problem (exp/expound-str spec specable-args)]
+          (log/log* config (or log-level :error) (str fn-name (if args? " argument list" " return type") "\n") problem)
+          (when throw?
+            (reset! valid-exception (ex-info problem {:fn-name (str fn-name)})))))
+      (catch #?(:cljs :default :clj Throwable) e
+        (log/error e "BUG: Internal error in expound or clojure spec.")))
+    (when @valid-exception
+      (throw @valid-exception)))
+  nil)
+
 
 #?(:clj
    (defn clean-defn
@@ -507,36 +538,6 @@
            :sym (let [fdef `(s/fdef ~fn-name ~@(generate-fspec-body bs))]
                   fdef)
            :key `(s/def ~fn-name (s/fspec ~@(generate-fspec-body bs))))))))
-
-;; runtime checking (both clj and cljs
-(defn- output-fn [data]
-  (let [{:keys [level ?err msg_ ?ns-str ?file hostname_
-                timestamp_ ?line]} data]
-    (str
-      (string/upper-case (name level)) " "
-      (force msg_)
-      (when-let [err ?err]
-        (str "\n" (timbre/stacktrace err {}))))))
-
-(defn run-check [args? {:keys [log-level vararg? throw? fn-name]} spec value]
-  (let [vargs?          (and args? vararg?)
-        varg            (if vargs? (last (seq value)) nil)
-        specable-args   (if vargs?
-                          (if (map? varg) (into (vec (butlast value)) (flatten (seq varg))) (into (vec (butlast value)) (seq varg)))
-                          value)
-        valid-exception (atom nil)]
-    (try
-      (when-not (s/valid? spec specable-args)
-        (let [config  (assoc timbre/*config* :output-fn output-fn)
-              problem (exp/expound-str spec specable-args)]
-          (log/log* config (or log-level :error) (str fn-name (if args? " argument list" " return type") "\n") problem)
-          (when throw?
-            (reset! valid-exception (ex-info problem {:fn-name (str fn-name)})))))
-      (catch #?(:cljs :default :clj Throwable) e
-        (log/error e "BUG: Internal error in expound or clojure spec.")))
-    (when @valid-exception
-      (throw @valid-exception)))
-  nil)
 
 #?(:clj
    (do
