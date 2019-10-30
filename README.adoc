@@ -3,67 +3,210 @@
 image:https://img.shields.io/clojars/v/com.fulcrologic/guardrails.svg[link=https://clojars.org/com.fulcrologic/guardrails]
 image:https://circleci.com/gh/fulcrologic/guardrails/tree/master.svg?style=svg["CircleCI", link="https://circleci.com/gh/fulcrologic/guardrails/tree/master"]
 
+Guardrails is intended to make it possible (and easy) to use specs as a loose but informative (even advisory) type system during development
+so you can better see where you are making mistakes as you make them, without affecting production build size
+or performance.
+
+== Quick Start
+
+. Add this library to your dependencies
+. Create a `guardrails.edn` with `{}` in it in your project root.
+. When you run a REPL or CLJS compiler, include the JVM option `-Dguardrails.enabled`.
+** Optionally: If you're using CLJS, set your compiler options to include `{:external-config {:guardrails {}}}`
+
+And code as follows:
+
+```
+(ns com.domain.app-ns
+  (:require
+    [com.fulcrologic.guardrails.core :refer [>defn >def | ? =>]]))
+
+;; >def (and >fdef) can be used to remove specs from production builds. Use them to define
+;; specs that you only need in development, and they will not hurt CLJS production build size.
+(>def ::thing (s/or :i int? :s string?))
+
+;; When guardrails is disabled this will just be a normal `defn`, and no fspec overhead will
+;; appear in cljs builds. When enabled it will check the inputs/outputs and *always* log
+;; an error using `expound`, and then *optionally* throw an exception,
+(>defn f [i]
+  [::thing => int?]
+  (if (string? i)
+    0
+    (inc i)))
+```
+
+then when the function is misused you'll at least get a log error:
+
+```
+user=> (f 3.2)
+ERROR /Users/user/project/src/com/domain/app_ns.clj:12 f's argument list
+ -- Spec failed --------------------
+
+  [3.2]
+   ^^^
+
+should satisfy
+
+  int?
+
+or
+
+  string?
+
+-- Relevant specs -------
+
+:user/thing:
+  (clojure.spec.alpha/or :i clojure.core/int? :s clojure.core/string?)
+```
+
+You can control if spec failures are advisory or fatal by editing `guardrails.edn` and setting the `:throw?` option. See
+<<Configuration>> for more details.
+
+== Why?
+
+Clojure spec's instrument (and Orchestra's outstrument) have a number of disadvantages when trying to use them for
+this purpose. Specifically, they are side-effecting after-calls that do not play particularly well with hot code reload,
+and always throw when there is a failed spec.  Furthermore, management of the accidental inclusion of specs in your cljs
+builds (which increase build size) is a constant pain when writing separate specs for functions (the specs end up in
+a whole other file, inclusion needs to be via a development ns, and things easily get out of date).
+
 This library is a middle ground between the features of raw Clojure spec and George Lipov's Ghostwheel.
 Much of the source code in this library is directly from https://github.com/gnl/ghostwheel[Ghostwheel].
 
-I personally wanted the following features, so I implemented them:
+This library is interested in providing:
 
-- The ability to use a simple DSL to declare the spec with a function (take from Ghostwheel). See that library's docs
+- The ability to use a simple DSL to declare the spec with a function (taken from Ghostwheel). See that library's docs
 for *syntax* of `>defn`, `>defn`, etc.
-- The ability to control when specs are actually emitted separate from checking (to control build size in cljs)
+- The ability to control when specs are actually emitted separate from checking (to control build size in cljs).
 - No reliance on generative testing facilities/checkers. No orchestra/instrument stuff.
 - Good output when a function receives or emits an incorrect value.
 - The ability to control if a spec failure causes a throw (instrument always throws), because a lot of the time
 during development your spec is just wrong, and crashing your program is very inconvenient. You just want a log message
 to make you aware.
 
-This library does *not* include any other features from Ghostwheel:
+without the extra overhead of Ghostwheel's support for:
 
-* Generative testing stuff.
+* Automatic generative testing stuff.
 * Tracing.
 * Side-effect detection/warning.
 
-It basically makes it possible to use specs as a loose but informative (even advisory) type system during development
-so you can better see where you are making mistakes as you make them, without affecting production build size
-or performance.
+[[gspec-syntax]]
+== The Gspec Syntax
 
-== Usage
+`[arg-specs* (| arg-preds+)? \=> ret-spec (| fn-preds+)? (\<- generator-fn)?]`
 
-1. Add this library to your dependencies
-2. Create `guardrails.edn` in your project root with at least an empty map in it. See Configuring below.
-3. Enable it (see Enabling below)
-4. Define functions using the expanded notation:
+`|` = `:st` – such that +
+`\=>` = `:ret` – return value, same as in fspec +
 
-```clj
-(ns my.app
-  (:require
-    [clojure.spec.alpha :as s]
-    [com.fulcrologic.guardrails.core :refer [>defn => |]]))
+NOTE: Throughout this guide the symbolic gspec operators `\=>` and `|` will be used instead of the equivalent
+keyword-based `:ret` and `:st`. The two sets are perfectly interchangeable and can even be freely mixed within the same gspec.
 
-;; Spec is just an extra vector after the arg list
-(>defn iadd
-  "Normal docstring"
-  [a b] ; args
-  [int? int? => int?] ; spec
-  (+ a b))
+The number of `arg-specs` must match the number of function arguments, including a possible variadic argument – Guardrails will shout at you if it doesn't.
 
-;; Each arity gets its own spec:
-(>defn multi-arity
-  ([a]
-   [int? => int]
-   (inc a))
-  ([a b]
-   [int? int? => (s/tuple int? int?)]
-   [(inc a) (inc b)]))
+=== Single/Multiple Arities
+
+Write the function as normal, and put a gspec after the argument list:
+
+```
+(>defn myf
+  ([x]
+   [int? => number?]
+   ...)
+  ([x y]
+   [int? int? => int?]
+   ...))
 ```
 
-And then depending on your configuration mis-calling these functions will:
+=== Variadic Argument Lists
 
-* Do nothing special if guardrails is disabled. In that case `>defn` is identical to `defn`.
-* Log messages on mis-use (if enabled, but throw is turned off)
-* Throw an exception on mis-use (if enabled).
+`arg-specs` for variadic arguments are defined as one would expect from standard fspec:
 
-See https://github.com/gnl/ghostwheel#the-gspec-syntax[Ghostwheel's documentation] for a full explanation of the DSL for specs.
+```clojure
+(>fdef clojure.core/max
+  [x & more]
+  [number? (s/* number?) => number?])
+```
+
+[NOTE]
+--
+The `arg-preds`, if defined, are `s/and`-wrapped together with the `arg-specs` when desugared.
+
+The `fn-preds` are equivalent to (and desugar to) spec's `:fn` predicates, except that the anonymous function parameter
+is the ret, and the args are referenced using their symbols. That's because in the gspec syntax spec's `:fn` is simply
+considered a 'such that' clause on the ret.
+--
+
+=== Such That
+
+To add an additional condition add `|` after either the argument specs (just before `=>`) or return value spec
+and supply a lambda that uses the symbol names from the argument list (and `%` for return value).
+
+```
+(>defn f
+  [i]
+  [int? | #(< 0 i 10) => int? | #(pos-int? %)]
+  ...)
+```
+
+WARNING: Return value such-that clauses are syntactically supported, but are not currently checked.
+
+=== Nilable
+
+The `?` macro can be used as a shorthand for `s/nilable`:
+
+```clojure
+(>fdef clojure.core/empty?
+  [coll]
+  [(? seqable?) => boolean?])
+```
+
+=== Nested Specs
+
+Nested gspecs are defined using the exact same syntax:
+
+```clojure
+(>fdef clojure.core/map-indexed
+  ([f]
+   [[nat-int? any? => any?] => fn?])
+  ([f coll]
+   [[nat-int? any? => any?] (? seqable?) => seq?]))
+```
+
+In the rare cases when a nilable gspec is needed `?` is put in a vector rather than a list:
+
+```clojure
+(>fdef clojure.core/set-validator!
+  [a f]
+  [atom? [? [any? => any?]] => any?])
+```
+
+TIP: For nested gspecs there's no way to reference the args in the `arg-preds` or `fn-preds` by symbol. The recommended
+approach here is to register the required gspec separately by using `>fdef` with a keyword.
+//You can do it with `#(\-> % :arg1)` in the `arg-preds`, but that won't work in the `fn-preds` and it's quite messy anyway. You could theoretically use a nested `(s/fspec ...)` instead of a gspec, but that gets unwieldy quick.
+
+NOTE: Nested gspecs with one or more `any?` argspecs desugar to `ifn?`, so as not to mess up generative testing. This
+can be overridden by passing a generator – even an empty one, that is simply adding `\<-` or `:gen` to the gspec – in which case the gspec will desugar exactly as specified.
+{zwsp}
+The assumption here is that `any?` does not imply that the function can in fact handle any type of argument.
+{zwsp}
+You should still write out nested gspecs, even if they are as simple as `[any? \=> any?]` – this is useful as succinct
+documentation that this particular function receives exactly one argument.
+
+[NOTE]
+--
+The gspec syntax has a number of advantages:
+
+- It's much more concise and easier to write and read.
+- It's inline, so you can see at a glance what kind of data a function expects and returns right under the
+docstring and arg list, for example when previewing the function definition in your editor.
+- It can be elided to have zero impact on build by an external control (config file/JVM parameter).
+- Renaming/refactoring parameters is a breeze – just use your IDE's symbol rename functionality and all references in
+the predicate functions will be handled correctly.
+- You can reliably bypass Guardrails temporarily by simply changing `>defn` to `defn` - the minimal performance impact
+of evaluating the gspec vector as the first body form aside, nothing will break because `>defn` syntax is valid `defn` syntax.
+--
+
+Credit: The above documentation was largely taken from https://github.com/gnl/ghostwheel#the-gspec-syntax[Ghostwheel's documentation].
 
 == Enabling
 
@@ -110,7 +253,7 @@ config path of a build:
 
 == Copyright and License
 
-The code taken from Ghostwheel is by George Lipov and follows the ownership/copyright of that library.
+The code and documentation taken from Ghostwheel is by George Lipov and follows the ownership/copyright of that library.
 The modifications in this library are copyrighted by Fulcrologic, LLC.
 
 This library follows Ghostwheel's original license: Eclipse public license version 2.0.
