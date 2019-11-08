@@ -16,7 +16,7 @@ or performance.
 
 And code as follows:
 
-```
+```clojure
 (ns com.domain.app-ns
   (:require
     [com.fulcrologic.guardrails.core :refer [>defn >def | ? =>]]))
@@ -107,7 +107,7 @@ The number of `arg-specs` must match the number of function arguments, including
 
 Write the function as normal, and put a gspec after the argument list:
 
-```
+```clojure
 (>defn myf
   ([x]
    [int? => number?]
@@ -141,7 +141,7 @@ considered a 'such that' clause on the ret.
 To add an additional condition add `|` after either the argument specs (just before `=>`) or return value spec
 and supply a lambda that uses the symbol names from the argument list (and `%` for return value).
 
-```
+```clojure
 (>defn f
   [i]
   [int? | #(< 0 i 10) => int? | #(pos-int? %)]
@@ -220,7 +220,7 @@ You may also enable it in cljs in your shadow-cljs config
 
 The default config goes in top of project as `guardrails.edn`:
 
-```clj
+```clojure
 {
  ; what to emit instead of defn, if you have another defn macro
  :defn-macro nil
@@ -242,7 +242,7 @@ You can override the config file *name* using JVM option
 In your shadow-cljs config file you can override settings via the `[:compiler-options :external-config :guardrails]`
 config path of a build:
 
-```clj
+```clojure
 ...
      :app  {:target            :browser
             :dev               {:compiler-options
