@@ -16,7 +16,8 @@ or performance.
 
 And code as follows:
 
-```clojure
+[source, clojure]
+-----
 (ns com.domain.app-ns
   (:require
     [com.fulcrologic.guardrails.core :refer [>defn >def | ? =>]]))
@@ -33,11 +34,12 @@ And code as follows:
   (if (string? i)
     0
     (inc i)))
-```
+-----
 
 then when the function is misused you'll at least get a log error:
 
-```
+[source, bash]
+-----
 user=> (f 3.2)
 ERROR /Users/user/project/src/com/domain/app_ns.clj:12 f's argument list
  -- Spec failed --------------------
@@ -57,7 +59,7 @@ or
 
 :user/thing:
   (clojure.spec.alpha/or :i clojure.core/int? :s clojure.core/string?)
-```
+-----
 
 You can control if spec failures are advisory or fatal by editing `guardrails.edn` and setting the `:throw?` option. See
 <<Configuration>> for more details.
@@ -107,7 +109,8 @@ The number of `arg-specs` must match the number of function arguments, including
 
 Write the function as normal, and put a gspec after the argument list:
 
-```clojure
+[source, clojure]
+-----
 (>defn myf
   ([x]
    [int? => number?]
@@ -115,17 +118,18 @@ Write the function as normal, and put a gspec after the argument list:
   ([x y]
    [int? int? => int?]
    ...))
-```
+-----
 
 === Variadic Argument Lists
 
 `arg-specs` for variadic arguments are defined as one would expect from standard fspec:
 
-```clojure
+[source, clojure]
+-----
 (>fdef clojure.core/max
   [x & more]
   [number? (s/* number?) => number?])
-```
+-----
 
 [NOTE]
 --
@@ -141,12 +145,13 @@ considered a 'such that' clause on the ret.
 To add an additional condition add `|` after either the argument specs (just before `=>`) or return value spec
 and supply a lambda that uses the symbol names from the argument list (and `%` for return value).
 
-```clojure
+[source, clojure]
+-----
 (>defn f
   [i]
   [int? | #(< 0 i 10) => int? | #(pos-int? %)]
   ...)
-```
+-----
 
 WARNING: Return value such-that clauses are syntactically supported, but are not currently checked.
 
@@ -154,31 +159,34 @@ WARNING: Return value such-that clauses are syntactically supported, but are not
 
 The `?` macro can be used as a shorthand for `s/nilable`:
 
-```clojure
+[source, clojure]
+-----
 (>fdef clojure.core/empty?
   [coll]
   [(? seqable?) => boolean?])
-```
+-----
 
 === Nested Specs
 
 Nested gspecs are defined using the exact same syntax:
 
-```clojure
+[source, clojure]
+-----
 (>fdef clojure.core/map-indexed
   ([f]
    [[nat-int? any? => any?] => fn?])
   ([f coll]
    [[nat-int? any? => any?] (? seqable?) => seq?]))
-```
+-----
 
 In the rare cases when a nilable gspec is needed `?` is put in a vector rather than a list:
 
-```clojure
+[source, clojure]
+-----
 (>fdef clojure.core/set-validator!
   [a f]
   [atom? [? [any? => any?]] => any?])
-```
+-----
 
 TIP: For nested gspecs there's no way to reference the args in the `arg-preds` or `fn-preds` by symbol. The recommended
 approach here is to register the required gspec separately by using `>fdef` with a keyword.
@@ -220,7 +228,8 @@ You may also enable it in cljs in your shadow-cljs config
 
 The default config goes in top of project as `guardrails.edn`:
 
-```clojure
+[source, clojure]
+-----
 {
  ; what to emit instead of defn, if you have another defn macro
  :defn-macro nil
@@ -235,21 +244,22 @@ The default config goes in top of project as `guardrails.edn`:
  ;; should a spec failure on args or ret throw an execption?
  ;; (always logs an informative message)
  :throw?     false}
-```
+-----
 
 You can override the config file *name* using JVM option
 `-Dguardrails.config=filename`.
 In your shadow-cljs config file you can override settings via the `[:compiler-options :external-config :guardrails]`
 config path of a build:
 
-```clojure
+[source, clojure]
+-----
 ...
      :app  {:target            :browser
             :dev               {:compiler-options
                                 {:external-config {:guardrails {:throw? false}}
                                  :closure-defines {'goog.DEBUG true}}}
 ...
-```
+-----
 
 == Copyright and License
 
