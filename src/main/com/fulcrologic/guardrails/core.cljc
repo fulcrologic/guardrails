@@ -692,7 +692,11 @@
      (defmacro >def
        "Simple pass-through to `s/def`, except it strips the
        specs in production – use for data specs you don't need
-       in production when you want to minimise your build size."
+       in production when you want to minimise your build size.
+
+       You can optionally send a documentation string as the second parameter, this
+       is intended to be informational for the code reader, current this is not stored
+       anywhere, meaning you can't access this string at runtime."
        ([k spec-form]
         (when (cfg/get-env-config)
           (cond-> `(s/def ~k ~spec-form)
