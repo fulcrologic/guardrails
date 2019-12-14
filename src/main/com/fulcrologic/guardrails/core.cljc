@@ -693,11 +693,12 @@
        "Simple pass-through to `s/def`, except it strips the
        specs in production – use for data specs you don't need
        in production when you want to minimise your build size."
-       [k spec-form]
-       (when (cfg/get-env-config)
-         (cond-> `(s/def ~k ~spec-form)
-           (cljs-env? &env) clj->cljs)))
-
+       ([k spec-form]
+        (when (cfg/get-env-config)
+          (cond-> `(s/def ~k ~spec-form)
+            (cljs-env? &env) clj->cljs)))
+       ([k _doc spec-form]
+        `(>def ~k ~spec-form)))
 
      (s/def ::>fdef-args
        (s/and seq?                                          ;REVIEW
