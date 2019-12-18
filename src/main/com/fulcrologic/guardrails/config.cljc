@@ -8,9 +8,11 @@
 
 (ns ^:no-doc com.fulcrologic.guardrails.config
   #?(:cljs (:require-macros com.fulcrologic.guardrails.config))
-  (:require [com.fulcrologic.guardrails.utils :as util]
-            #?@(:clj  [[clojure.edn :as edn]]
-                :cljs [[cljs.env :as cljs-env]])))
+  (:require
+    [com.fulcrologic.guardrails.utils :as util]
+    [taoensso.timbre :as log]
+    #?@(:clj  [[clojure.edn :as edn]]
+        :cljs [[cljs.env :as cljs-env]])))
 
 ;; This isn't particularly pretty, but it's how we avoid
 ;; having ClojureScript as a required dependency on Clojure
@@ -37,6 +39,9 @@
       (atom {::timestamp 0
              ::value     nil})
 
+      warned?
+      (atom false)
+
       read-config-file
       (fn []
         #?(:clj  (try
@@ -55,6 +60,13 @@
                        (when #?(:clj (or
                                        cljs-compiler-config
                                        (System/getProperty "guardrails.enabled")) :cljs false)
+                         (when-not @warned?
+                           (reset! warned? true)
+                           (log/warn "GUARDRAILS IS ENABLED. RUNTIME PERFORMANCE WILL BE AFFECTED.")
+                           (log/info "Guardrails was enabled because"
+                             (if cljs-compiler-config
+                               "the CLJS Compiler config enabled it"
+                               "the guardrails.enabled property is set to a (any) value.")))
                          (merge {}
                            (read-config-file)
                            cljs-compiler-config)))]
