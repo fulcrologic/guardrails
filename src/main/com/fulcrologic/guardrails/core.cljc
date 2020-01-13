@@ -597,8 +597,7 @@
                                 (map? ~(last sym-arg-list)) (apply ~f ~@(butlast sym-arg-list) (apply concat (last ~sym-arg-list)))
                                 (seq ~(last sym-arg-list)) (apply ~f ~@sym-arg-list)
                                 :else (~f ~@(butlast sym-arg-list)))
-                             `(~f ~@sym-arg-list)
-                             )]
+                             `(~f ~@sym-arg-list))]
          `(~@(remove nil? [arg-list prepost])
             (let [{~argspec :args ~retspec :ret} ~fspec]
               ~args-check
