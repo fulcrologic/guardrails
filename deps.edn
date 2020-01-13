@@ -12,7 +12,7 @@
                        :extra-deps  {lambdaisland/kaocha {:mvn/version "0.0-529"}}}
 
            :dev       {:extra-paths ["src/dev"]
-                       :extra-deps  {thheller/shadow-cljs        {:mvn/version "2.8.54"}
+                       :extra-deps  {thheller/shadow-cljs        {:mvn/version "2.8.83"}
                                      org.clojure/tools.nrepl     {:mvn/version "0.2.13"}
                                      binaryage/devtools          {:mvn/version "0.9.10"}
                                      org.clojure/tools.namespace {:mvn/version "0.3.1"}}}}}

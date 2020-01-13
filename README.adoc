@@ -64,6 +64,51 @@ or
 You can control if spec failures are advisory or fatal by editing `guardrails.edn` and setting the `:throw?` option. See
 <<Configuration>> for more details.
 
+== Clojurescript Considerations
+
+I use `shadow-cljs` as the build tool for all of my projects, and highly recommend it. Version 0.0.11 of Guardrails
+checks the compiler optimizations and refuses to output guardrails checks except in development mode (no optimizations). This
+prevents you from accidentally releasing a CLJS project with big runtime performance penalties due to spec checking
+at every function call.
+
+The recommended approach for using guardrails in your project is to make a separate `:dev` and `:release` section of your
+shadow-cljs config, like so:
+
+[source, clojure]
+------
+ :builds   {:main              {:target            :browser
+                                ...
+                                :dev               {:compiler-options
+                                                    {:closure-defines {'goog.DEBUG true}
+                                                     :external-config {:guardrails {}}}}
+                                :release           {}}
+------
+
+Doing so will prevent you from accidentally generating a release build with guardrails enabled in case you had
+a shadow-cljs server running in dev mode (which would cache that guardrails was enabled) and built a release
+target:
+
+[source, bash]
+-----
+# in one terminal:
+$ shadow-cljs server
+# later, in a different terminal
+$ shadow-cljs release main
+-----
+
+In this scenario Guardrails will detect that you have accidentally enabled it on a production build and will
+throw an exception.  The only way to get guardrails to build into a CLJS release build is to explicitly set
+the JVM property "guardrails.enabled" to "production" (NOTE: any truthy value will enable it in CLJ).
+
+You can set JVM options in shadow-cljs using the `:jvm-opts` key:
+
+[source, clojure]
+-----
+ :jvm-opts ["-Dguardrails.enabled=production"]
+-----
+
+but this is highly discouraged.
+
 == Why?
 
 Clojure spec's instrument (and Orchestra's outstrument) have a number of disadvantages when trying to use them for
