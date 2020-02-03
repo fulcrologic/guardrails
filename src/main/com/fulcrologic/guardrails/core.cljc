@@ -88,8 +88,8 @@
    (do
      (s/def ::defn-macro (s/nilable string?))
      (s/def ::expound (s/nilable (s/map-of keyword? any?)))
-     (s/def ::throw? (s/nilable (s/map-of keyword? any?)))
-     (s/def ::emit-spec? (s/nilable (s/map-of keyword? any?)))
+     (s/def ::throw? (s/nilable boolean?))
+     (s/def ::emit-spec? (s/nilable boolean?))
      (s/def ::log-level #{:trace :debug :info :warn :error :fatal :report})
 
      (s/def ::guardrails-config
@@ -694,10 +694,10 @@
        in production when you want to minimise your build size.
 
        You can optionally send a documentation string as the second parameter, this
-       is intended to be informational for the code reader, current this is not stored
+       is intended to be informational for the code reader, currently this is not stored
        anywhere, meaning you can't access this string at runtime."
        ([k spec-form]
-        (when (cfg/get-env-config)
+        (when (get (cfg/get-env-config) :emit-spec? true) 
           (cond-> `(s/def ~k ~spec-form)
             (cljs-env? &env) clj->cljs)))
        ([k _doc spec-form]
