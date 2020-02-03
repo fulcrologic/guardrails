@@ -643,6 +643,9 @@
                                   ~@(process-fn-bodies))]
          `(do ~fdef (declare ~fn-name) ~main-defn)))
 
+     (defmacro emit-specs? []
+       (get (cfg/get-env-config) :emit-spec? true))
+     
      ;;;; Main macros and public API
 
      (s/def ::>defn-args
@@ -664,7 +667,7 @@
        {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                     [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
        [& forms]
-       (if (cfg/get-env-config)
+       (if (emit-specs?)
          (cond-> (remove nil? (generate-defn forms false (assoc &env :form &form)))
            (cljs-env? &env) clj->cljs)
          (clean-defn 'defn forms)))
@@ -681,7 +684,7 @@
        {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                     [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
        [& forms]
-       (if (cfg/get-env-config)
+       (if (emit-specs?)
          (cond-> (remove nil? (generate-defn forms true &env))
            (cljs-env? &env) clj->cljs)
          (clean-defn 'defn- forms)))
@@ -697,7 +700,7 @@
        is intended to be informational for the code reader, currently this is not stored
        anywhere, meaning you can't access this string at runtime."
        ([k spec-form]
-        (when (get (cfg/get-env-config) :emit-spec? true) 
+        (when (emit-specs?) 
           (cond-> `(s/def ~k ~spec-form)
             (cljs-env? &env) clj->cljs)))
        ([k _doc spec-form]
@@ -718,7 +721,7 @@
        {:arglists '([name [params*] gspec]
                     [name ([params*] gspec) +])}
        [& forms]
-       (when (cfg/get-env-config)
+       (when (emit-specs?)
          (cond-> (remove nil? (generate-fdef &env forms))
            (cljs-env? &env) clj->cljs)))
 
