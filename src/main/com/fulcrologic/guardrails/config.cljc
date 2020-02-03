@@ -85,12 +85,12 @@
                         (::value @*config-cache)
                         (::value (reset! *config-cache {::timestamp now
                                                         ::value     (reload-config)})))))]
-       #?(:clj (when (and result cljs.env/*compiler*)
-                 (let [production? (contains? #{:advanced :whitespace :simple} (get-in @cljs.env/*compiler* [:options :optimizations]))]
+       #?(:clj (when (and result cljs-env/*compiler*)
+                 (let [production? (contains? #{:advanced :whitespace :simple} (get-in @cljs-env/*compiler* [:options :optimizations]))]
                    (when (and production? (not= "production" (System/getProperty "guardrails.enabled")))
                      (throw (ex-info (str "REFUSING TO COMPILE PRODUCTION BUILD WITH GUARDRAILS ENABLED!.  If you really want to take "
-                                       "that performance hit then set the JVM properter guardrails.enabled to \"production\" on the CLJS compiler's JVM")
-                              {}))))))
+                                          "that performance hit then set the JVM properter guardrails.enabled to \"production\" on the CLJS compiler's JVM")
+                                     {}))))))
        result))))
 
 (defn get-base-config-fn
