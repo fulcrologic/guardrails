@@ -86,10 +86,10 @@
 
 #?(:clj
    (do
-     (s/def ::defn-macro (s/nilable string?))
-     (s/def ::expound (s/nilable (s/map-of keyword? any?)))
-     (s/def ::throw? (s/nilable boolean?))
-     (s/def ::emit-spec? (s/nilable boolean?))
+     (s/def ::defn-macro string?)
+     (s/def ::expound (s/map-of keyword? any?))
+     (s/def ::throw? boolean?)
+     (s/def ::emit-spec? boolean?)
      (s/def ::log-level #{:trace :debug :info :warn :error :fatal :report})
 
      (s/def ::guardrails-config
