@@ -86,10 +86,10 @@
 
 #?(:clj
    (do
-     (s/def ::defn-macro (s/nilable string?))
-     (s/def ::expound (s/nilable (s/map-of keyword? any?)))
-     (s/def ::throw? (s/nilable (s/map-of keyword? any?)))
-     (s/def ::emit-spec? (s/nilable (s/map-of keyword? any?)))
+     (s/def ::defn-macro string?)
+     (s/def ::expound (s/map-of keyword? any?))
+     (s/def ::throw? boolean?)
+     (s/def ::emit-spec? boolean?)
      (s/def ::log-level #{:trace :debug :info :warn :error :fatal :report})
 
      (s/def ::guardrails-config
@@ -643,6 +643,9 @@
                                   ~@(process-fn-bodies))]
          `(do ~fdef (declare ~fn-name) ~main-defn)))
 
+     (defmacro emit-specs? []
+       (get (cfg/get-env-config) :emit-spec? true))
+
      ;;;; Main macros and public API
 
      (s/def ::>defn-args
@@ -694,10 +697,10 @@
        in production when you want to minimise your build size.
 
        You can optionally send a documentation string as the second parameter, this
-       is intended to be informational for the code reader, current this is not stored
+       is intended to be informational for the code reader, currently this is not stored
        anywhere, meaning you can't access this string at runtime."
        ([k spec-form]
-        (when (cfg/get-env-config)
+        (when (emit-specs?)
           (cond-> `(s/def ~k ~spec-form)
             (cljs-env? &env) clj->cljs)))
        ([k _doc spec-form]
@@ -718,7 +721,7 @@
        {:arglists '([name [params*] gspec]
                     [name ([params*] gspec) +])}
        [& forms]
-       (when (cfg/get-env-config)
+       (when (emit-specs?)
          (cond-> (remove nil? (generate-fdef &env forms))
            (cljs-env? &env) clj->cljs)))
 
