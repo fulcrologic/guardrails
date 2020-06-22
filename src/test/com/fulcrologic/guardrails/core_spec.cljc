@@ -24,27 +24,30 @@
 
 #?(:clj
    (specification "Normal mode >defn macro"
-     (provided "There is no config"
-       (config/get-env-config) => nil
+     (let [test-fn '(>defn f [x] [int? => int?] (inc x))]
 
-       (let [output (gr/>defn* {} '(>defn f [x] (inc x)) '([x] (inc x)))]
-         (assertions
-           "Emits a normal function"
-           output => `(defn f [x] (inc x)))))
-     (provided "There is a free config"
-       (config/get-env-config) => {:emit-spec? true}
+       (provided "There is no config"
+         (config/get-env-config) => nil
+         (let [output (gr/>defn* {} test-fn (rest test-fn))]
+           (assertions
+             "Emits a normal function"
+             output => '(defn f [x] (inc x)))))
 
-       (let [output (gr/>defn* {} '(>defn f [x] (inc x)) '([x] (inc x)))]
-         (assertions
-           "Emits the free version"
-           output => `(defn f [x] (inc x)))))
-     (provided "There is a pro config"
-       (config/get-env-config) => {:pro? true}
+       (provided "There is a free config"
+         (config/get-env-config & _) => {:emit-spec? true}
+         (gr/generate-defn & _) => '(:stub/free-defn)
+         (let [output (gr/>defn* {} test-fn (rest test-fn))]
+           (assertions
+             "Emits the free version"
+             output => '(:stub/free-defn))))
 
-       (let [output (gr/>defn* {} '(>defn f [x] (inc x)) '([x] (inc x)))]
-         (assertions
-           "Emits a pro macro"
-           output => `(com.fulcrologic.guardrails-pro.core/>defn f [x] (inc x)))))))
+       (provided "There is a pro config"
+         (config/get-env-config) => {:pro? true}
+         (let [output (gr/>defn* {} test-fn (rest test-fn))]
+           (assertions
+             "Emits a pro macro"
+             output => `(com.fulcrologic.guardrails-pro.core/>defn
+                          ~@(rest test-fn))))))))
 
 (>defn test-function
   "docstring"

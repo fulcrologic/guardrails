@@ -660,11 +660,10 @@
                  ;; TODO: add tail-attr-map support after this
                  :arity-n (s/+ (s/and seq? ::args+gspec+body))))))
 
-
      (defn >defn* [env form body]
        (cond
          (not (cfg/get-env-config)) (clean-defn 'defn body)
-         (pro?) `(com.fulcrologic.guardrails-pro.core/>defn @~body)
+         (pro?) `(com.fulcrologic.guardrails-pro.core/>defn ~@body)
          :else (cond-> (remove nil? (generate-defn body false (assoc env :form form)))
                  (cljs-env? env) clj->cljs)))
 
