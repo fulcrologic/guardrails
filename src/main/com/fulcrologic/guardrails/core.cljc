@@ -646,6 +646,9 @@
      (defmacro emit-specs? []
        (get (cfg/get-env-config) :emit-spec? true))
 
+     (defn pro? []
+       (get (cfg/get-env-config) :pro? false))
+
      ;;;; Main macros and public API
 
      (s/def ::>defn-args
@@ -658,6 +661,12 @@
                  :arity-n (s/+ (s/and seq? ::args+gspec+body))))))
 
 
+     (defn >defn* [env form body]
+       (cond
+         (not (cfg/get-env-config)) (clean-defn 'defn body)
+         (pro?) `(com.fulcrologic.guardrails-pro.core/>defn @~body)
+         :else (cond-> (remove nil? (generate-defn body false (assoc env :form form)))
+                 (cljs-env? env) clj->cljs)))
 
      (defmacro >defn
        "Like defn, but requires a (nilable) gspec definition and generates
@@ -667,13 +676,9 @@
        {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                     [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
        [& forms]
-       (if (cfg/get-env-config)
-         (cond-> (remove nil? (generate-defn forms false (assoc &env :form &form)))
-           (cljs-env? &env) clj->cljs)
-         (clean-defn 'defn forms)))
+       (>defn* &env &form forms))
 
      (s/fdef >defn :args ::>defn-args)
-
 
      ;; NOTE: lots of duplication - refactor this to set/pass ^:private differently and call >defn
      (defmacro >defn-

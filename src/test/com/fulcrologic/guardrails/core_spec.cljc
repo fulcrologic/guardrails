@@ -1,8 +1,8 @@
 (ns com.fulcrologic.guardrails.core-spec
   (:require
     [com.fulcrologic.guardrails.config :as config]
-    [com.fulcrologic.guardrails.core :refer [>defn =>]]
-    [fulcro-spec.core :refer [specification assertions]]
+    [com.fulcrologic.guardrails.core :as gr :refer [>defn =>]]
+    [fulcro-spec.core :refer [specification assertions when-mocking provided]]
     [taoensso.timbre :as log]
     [clojure.spec.alpha :as s]
     [clojure.test :refer [deftest is]]))
@@ -21,6 +21,30 @@
                                          :emit-spec? true
                                          :expound    {:show-valid-values? true
                                                       :print-specs?       true}})))
+
+#?(:clj
+   (specification "Normal mode >defn macro"
+     (provided "There is no config"
+       (config/get-env-config) => nil
+
+       (let [output (gr/>defn* {} '(>defn f [x] (inc x)) '([x] (inc x)))]
+         (assertions
+           "Emits a normal function"
+           output => `(defn f [x] (inc x)))))
+     (provided "There is a free config"
+       (config/get-env-config) => {:emit-spec? true}
+
+       (let [output (gr/>defn* {} '(>defn f [x] (inc x)) '([x] (inc x)))]
+         (assertions
+           "Emits the free version"
+           output => `(defn f [x] (inc x)))))
+     (provided "There is a pro config"
+       (config/get-env-config) => {:pro? true}
+
+       (let [output (gr/>defn* {} '(>defn f [x] (inc x)) '([x] (inc x)))]
+         (assertions
+           "Emits a pro macro"
+           output => `(com.fulcrologic.guardrails-pro.core/>defn f [x] (inc x)))))))
 
 (>defn test-function
   "docstring"

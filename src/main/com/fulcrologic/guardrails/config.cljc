@@ -21,6 +21,11 @@
           (require '[cljs.env :as cljs-env])
           (catch Exception _ (require '[com.fulcrologic.guardrails.stubs.cljs-env :as cljs-env]))))
 
+;; Just in case they are using Pro, make sure that ns is loaded
+#?(:clj (try
+          (require 'com.fulcrologic.guardrails-pro.core)
+          (catch Exception _)))
+
 (def default-config
   {;; Generates standard `defn` function definitions
    ;; by default. If you require composability with other
