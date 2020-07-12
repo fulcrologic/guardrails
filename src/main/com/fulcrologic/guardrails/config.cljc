@@ -21,11 +21,6 @@
           (require '[cljs.env :as cljs-env])
           (catch Exception _ (require '[com.fulcrologic.guardrails.stubs.cljs-env :as cljs-env]))))
 
-;; Just in case they are using Pro, make sure that ns is loaded
-#?(:clj (try
-          (require 'com.fulcrologic.guardrails-pro.core)
-          (catch Exception _)))
-
 (def default-config
   {;; Generates standard `defn` function definitions
    ;; by default. If you require composability with other
@@ -74,6 +69,14 @@
                          (merge {}
                            (read-config-file)
                            cljs-compiler-config)))]
+          #?(:clj
+             (when (:pro? config)
+               (try
+                 (require 'com.fulcrologic.guardrails-pro.core)
+                 (log/info "Guardrails Pro Enabled.")
+                 (catch Exception e
+                   (log/error e)
+                   (throw (ex-info "Guardrails Pro mode requested, but Guardrails Pro is not on the classpath!" {}))))))
           ;#?(:clj (.println System/err config)) ; DEBUG
           config))]
 
@@ -94,8 +97,8 @@
                  (let [production? (contains? #{:advanced :whitespace :simple} (get-in @cljs-env/*compiler* [:options :optimizations]))]
                    (when (and production? (not= "production" (System/getProperty "guardrails.enabled")))
                      (throw (ex-info (str "REFUSING TO COMPILE PRODUCTION BUILD WITH GUARDRAILS ENABLED!.  If you really want to take "
-                                          "that performance hit then set the JVM properter guardrails.enabled to \"production\" on the CLJS compiler's JVM")
-                                     {}))))))
+                                       "that performance hit then set the JVM properter guardrails.enabled to \"production\" on the CLJS compiler's JVM")
+                              {}))))))
        result))))
 
 (defn get-base-config-fn
