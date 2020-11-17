@@ -46,12 +46,17 @@
         valid-exception (atom nil)]
     (try
       (when-not (s/valid? spec specable-args)
-        (let [problem (exp/expound-str spec specable-args expound-opts)]
-          (utils/report-problem  (str fn-name (if args? " argument list" " return type") "\n" problem))
-          (when throw?
-            (reset! valid-exception (ex-info problem {:fn-name (str fn-name)})))))
+        (let [problem     (exp/expound-str spec specable-args expound-opts)
+              description (str
+                            "\n"
+                            fn-name
+                            (if args? " argument list" " return type") "\n"
+                            problem)]
+          (if throw?
+            (reset! valid-exception (ex-info description {}))
+            (utils/report-problem (str description "\n" (utils/stacktrace (ex-info "" {})))))))
       (catch #?(:cljs :default :clj Throwable) e
-        (utils/report-exception e (str "BUG: Internal error in expound or clojure spec.\n" ))))
+        (utils/report-exception e (str "BUG: Internal error in expound or clojure spec.\n"))))
     (when @valid-exception
       (throw @valid-exception)))
   nil)
