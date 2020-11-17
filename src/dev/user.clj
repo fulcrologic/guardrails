@@ -11,9 +11,10 @@
 ;; When guardrails is disabled this will just be a normal `defn`, and no fspec overhead will
 ;; appear in cljs builds. When enabled it will check the inputs/outputs and *always* log
 ;; an error using `expound`, and then *optionally* throw an exception,
-(>defn f [i]
-  [int? | #(< -10 i 5) => int? | #(> i %)]
-  (inc i))
+;; TODO: return predicate cannot resolve from arglist
+;(>defn f [i]
+;  [int? | #(< -10 i 5) => int? | #(> i %)]
+;  (inc i))
 
 (comment
   (f -2))

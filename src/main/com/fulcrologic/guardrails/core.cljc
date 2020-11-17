@@ -10,13 +10,14 @@
 (ns com.fulcrologic.guardrails.core
   #?(:cljs (:require-macros com.fulcrologic.guardrails.core))
   (:require
-    #?@(:clj [[clojure.set :refer [union difference map-invert]]
-              [clojure.walk :as walk]
-              [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs]]
-              [com.fulcrologic.guardrails.config :as cfg]])
-    [clojure.string :as string]
-    [taoensso.timbre :as log]
+    #?@(:clj [[clojure.walk :as walk]
+              [com.fulcrologic.guardrails.config :as gr.cfg]
+              [com.fulcrologic.guardrails.impl.pro :as gr.pro]
+              [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs]]])
+    #?@(:cljs [[com.fulcrologic.guardrails.impl.externs]])
+    [com.fulcrologic.guardrails.utils :as utils]
     [clojure.spec.alpha :as s]
+    [clojure.string :as string]
     [expound.alpha :as exp]))
 
 ;; It doesn't actually matter what these are bound to, they are stripped by
@@ -34,9 +35,9 @@
       (string/upper-case (name level)) " "
       (force msg_)
       (when-let [err ?err]
-        (str "\n" (log/stacktrace err {}))))))
+        (str "\n" (utils/stacktrace err))))))
 
-(defn run-check [args? {:keys [log-level vararg? throw? fn-name]} spec value]
+(defn run-check [{:keys [args? vararg? throw? fn-name expound-opts]} spec value]
   (let [vargs?          (and args? vararg?)
         varg            (if vargs? (last (seq value)) nil)
         specable-args   (if vargs?
@@ -45,13 +46,12 @@
         valid-exception (atom nil)]
     (try
       (when-not (s/valid? spec specable-args)
-        (let [config  (assoc log/*config* :output-fn output-fn)
-              problem (exp/expound-str spec specable-args)]
-          (log/log* config (or log-level :error) (str fn-name (if args? " argument list" " return type") "\n") problem)
+        (let [problem (exp/expound-str spec specable-args expound-opts)]
+          (utils/report-problem  (str fn-name (if args? " argument list" " return type") "\n" problem))
           (when throw?
             (reset! valid-exception (ex-info problem {:fn-name (str fn-name)})))))
       (catch #?(:cljs :default :clj Throwable) e
-        (log/error e "BUG: Internal error in expound or clojure spec.")))
+        (utils/report-exception e (str "BUG: Internal error in expound or clojure spec.\n" ))))
     (when @valid-exception
       (throw @valid-exception)))
   nil)
@@ -89,16 +89,12 @@
      (s/def ::defn-macro string?)
      (s/def ::expound (s/map-of keyword? any?))
      (s/def ::throw? boolean?)
-     (s/def ::emit-spec? boolean?)
-     (s/def ::log-level #{:trace :debug :info :warn :error :fatal :report})
 
      (s/def ::guardrails-config
        (s/keys
          :opt-un [::defn-macro
                   ::expound
-                  ::throw?
-                  ::emit-spec?
-                  ::log-level]))
+                  ::throw?]))
 
      ;; These are lifted straight from clojure.core.specs.alpha, because it
      ;; didn't seem possible to access them directly in the original namespace.
@@ -543,8 +539,8 @@
    (do
      (defn- process-defn-body
        [cfg fspec args+gspec+body]
-       (let [{:keys                                 [env fn-name]
-              {:keys [throw? emit-spec? log-level]} :config} cfg
+       (let [{:keys            [env fn-name]
+              {:keys [throw?]} :config} cfg
              {:keys [args body]} args+gspec+body
              [prepost orig-body-forms] (case (key body)
                                          :prepost+body [(-> body val :prepost)
@@ -584,12 +580,15 @@
              body-forms    orig-body-forms
              where         (str file ":" line " " fn-name "'s")
              argspec       (gensym "argspec")
-             opts          {:fn-name   where :emit-spec? emit-spec?
-                            :log-level log-level :throw? throw? :vararg? (boolean var-arg)}
-             args-check    `(when ~argspec (run-check true ~opts ~argspec ~sym-arg-list))
+             opts          {:fn-name      where
+                            :throw?       throw?
+                            :vararg?      (boolean var-arg)
+                            :expound-opts (get (gr.cfg/get-env-config) :expound {})}
+
+             args-check    `(when ~argspec (run-check ~(assoc opts :args? true) ~argspec ~sym-arg-list))
              retspec       (gensym "retspec")
              ret           (gensym "ret")
-             ret-check     `(when ~retspec (run-check false ~opts ~retspec ~ret))
+             ret-check     `(when ~retspec (run-check ~(assoc opts :args? false) ~retspec ~ret))
              real-function `(fn ~arg-list ~@body-forms)
              f             (gensym "f")
              call          (if (boolean var-arg)
@@ -617,13 +616,13 @@
                                  (generate-type-annotations env fn-bodies)
                                  {::guardrails true})
              ;;; Assemble the config
-             {:keys [defn-macro emit-spec?] :as config} (cfg/merge-config env (meta fn-name) meta-map)
+             {:keys [defn-macro] :as config} (gr.cfg/merge-config env (meta fn-name) meta-map)
              defn-sym          (cond defn-macro (with-meta (symbol defn-macro) {:private private})
                                      private 'defn-
                                      :else 'defn)
              ;;; Code generation
              fdef-body         (generate-fspec-body fn-bodies)
-             fdef              (when (and fdef-body emit-spec?) `(s/fdef ~fn-name ~@fdef-body))
+             fdef              (when fdef-body `(s/fdef ~fn-name ~@fdef-body))
              individual-arity-fspecs
                                (map (fn [{:keys [args gspec]}]
                                       (when gspec
@@ -643,12 +642,6 @@
                                   ~@(process-fn-bodies))]
          `(do ~fdef (declare ~fn-name) ~main-defn)))
 
-     (defmacro emit-specs? []
-       (get (cfg/get-env-config) :emit-spec? true))
-
-     (defn pro? []
-       (get (cfg/get-env-config) :pro? false))
-
      ;;;; Main macros and public API
 
      (s/def ::>defn-args
@@ -660,12 +653,17 @@
                  ;; TODO: add tail-attr-map support after this
                  :arity-n (s/+ (s/and seq? ::args+gspec+body))))))
 
-     (defn >defn* [env form body]
-       (cond
-         (not (cfg/get-env-config)) (clean-defn 'defn body)
-         (pro?) `(com.fulcrologic.guardrails-pro.core/>defn ~@body)
-         :else (cond-> (remove nil? (generate-defn body false (assoc env :form form)))
-                 (cljs-env? env) clj->cljs)))
+     (defn >defn* [env form body {:keys [private?] :as opts}]
+       (let [cfg  (gr.cfg/get-env-config)
+             mode (gr.cfg/mode cfg)]
+         (cond
+           (not cfg) (clean-defn 'defn body)
+           (= :pro mode) `(do (defn ~@body)
+                              ~(gr.pro/>defn-impl env body opts))
+           (#{:runtime :all} mode)
+           (cond-> (remove nil? (generate-defn body private? (assoc env :form form)))
+             (cljs-env? env) clj->cljs
+             (= :all mode) (-> vec (conj (gr.pro/>defn-impl env body opts)) seq)))))
 
      (defmacro >defn
        "Like defn, but requires a (nilable) gspec definition and generates
@@ -675,11 +673,10 @@
        {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                     [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
        [& forms]
-       (>defn* &env &form forms))
+       (>defn* &env &form forms {:private false}))
 
      (s/fdef >defn :args ::>defn-args)
 
-     ;; NOTE: lots of duplication - refactor this to set/pass ^:private differently and call >defn
      (defmacro >defn-
        "Like defn-, but requires a (nilable) gspec definition and generates
        additional `s/fdef`, generative tests, instrumentation code, an
@@ -688,25 +685,15 @@
        {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                     [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
        [& forms]
-       (if (cfg/get-env-config)
-         (cond-> (remove nil? (generate-defn forms true &env))
-           (cljs-env? &env) clj->cljs)
-         (clean-defn 'defn- forms)))
+       (>defn* &env &form forms {:private true}))
 
      (s/fdef >defn- :args ::>defn-args)
 
      (defmacro >def
-       "Simple pass-through to `s/def`, except it strips the
-       specs in production – use for data specs you don't need
-       in production when you want to minimise your build size.
-
-       You can optionally send a documentation string as the second parameter, this
-       is intended to be informational for the code reader, currently this is not stored
-       anywhere, meaning you can't access this string at runtime."
+       "DEPRECATED: to be removed"
        ([k spec-form]
-        (when (emit-specs?)
-          (cond-> `(s/def ~k ~spec-form)
-            (cljs-env? &env) clj->cljs)))
+        (cond-> `(s/def ~k ~spec-form)
+          (cljs-env? &env) clj->cljs))
        ([k _doc spec-form]
         `(>def ~k ~spec-form)))
 
@@ -725,8 +712,16 @@
        {:arglists '([name [params*] gspec]
                     [name ([params*] gspec) +])}
        [& forms]
-       (when (emit-specs?)
-         (cond-> (remove nil? (generate-fdef &env forms))
-           (cljs-env? &env) clj->cljs)))
+       (when-let [cfg (gr.cfg/get-env-config)]
+         `(do ~(when (#{:pro :all} (gr.cfg/mode cfg))
+                 (gr.pro/>fdef-impl &env forms))
+              ~(cond-> (remove nil? (generate-fdef &env forms))
+                 (cljs-env? &env) clj->cljs))))
 
-     (s/fdef >fdef :args ::>fdef-args)))
+     (s/fdef >fdef :args ::>fdef-args)
+
+     ;; TODO: clean >fn (no gspec)
+     (defmacro >fn [& forms] `(fn ~@forms))
+
+     (defmacro >fspec [& forms]
+       (gr.pro/>fspec-impl &env forms))))

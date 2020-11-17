@@ -8,7 +8,9 @@
 
 (ns ^:no-doc com.fulcrologic.guardrails.utils
   #?(:cljs (:require-macros com.fulcrologic.guardrails.utils))
-  (:require [clojure.walk :as walk]))
+  (:require
+    #?(:clj [clojure.stacktrace :as st])
+    [clojure.walk :as walk]))
 
 (defn cljs-env? [env] (boolean (:ns env)))
 
@@ -32,8 +34,8 @@
                                     "clojure.spec.test.alpha" "cljs.spec.test.alpha"
                                     "orchestra.spec.test"     "orchestra-cljs.spec.test"
                                     "clojure.spec.gen.alpha"  "cljs.spec.gen.alpha"}
-                                   strip-core-ns (merge {"clojure.core" nil
-                                                         "cljs.core"    nil}))
+                             strip-core-ns (merge {"clojure.core" nil
+                                                   "cljs.core"    nil}))
          replace-namespace #(if-not (qualified-symbol? %)
                               %
                               (let [nspace (namespace %)]
@@ -57,9 +59,9 @@
    (get-call-context env nil))
   ([env label]
    (str (when label (str label " – "))
-        (get-ns-name env)
-        ":"
-        (get-file-position env))))
+     (get-ns-name env)
+     ":"
+     (get-file-position env))))
 
 
 (defn gen-exception [env msg]
@@ -73,7 +75,35 @@
                           :min-expandable-sequable-count-for-well-known-types 2}
          left-adjust#    (str "margin-left: -17px;")]
      (merge current-config#
-            (into overrides# (for [k# [:header-style]
-                                   :let [v# (get current-config# k#)]]
-                               [k# (str v# left-adjust#)])))))
+       (into overrides# (for [k# [:header-style]
+                              :let [v# (get current-config# k#)]]
+                          [k# (str v# left-adjust#)])))))
 
+(defn map-vals [f m] (if (nil? m) {} (reduce-kv (fn [m k v] (assoc m k (f v))) m m)))
+(defn map-keys [f m] (if (nil? m) {} (reduce-kv (fn [m k v] (assoc m (f k) v)) {} m)))
+
+#?(:clj
+   (defn compiling-cljs?
+     "Return truthy iff currently generating Cljs code."
+     []
+     (when-let [n (find-ns 'cljs.analyzer)]
+       (when-let [v (ns-resolve n '*cljs-file*)]
+         @v))))
+
+(defn stacktrace
+  ([err] (stacktrace err nil))
+  ([err opts]
+   #?(:cljs (str err)
+      :clj  (with-out-str (st/print-stack-trace err)))))
+
+(defn report-problem [message]
+  #?(:clj
+     (.println System/err message)
+     :cljs
+     (js/console.error message)))
+
+(defn report-exception [e message]
+  #?(:clj
+     (.println System/err (str message \n (.getMessage ^Exception e) "\n" (stacktrace e)))
+     :cljs
+     (js/console.error message e)))

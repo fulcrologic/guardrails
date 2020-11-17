@@ -9,8 +9,7 @@
 (ns ^:no-doc com.fulcrologic.guardrails.config
   #?(:cljs (:require-macros com.fulcrologic.guardrails.config))
   (:require
-    [com.fulcrologic.guardrails.utils :as util]
-    [taoensso.timbre :as log]
+    [com.fulcrologic.guardrails.utils :as utils]
     #?@(:clj  [[clojure.edn :as edn]]
         :cljs [[cljs.env :as cljs-env]])))
 
@@ -44,9 +43,10 @@
       read-config-file
       (fn []
         #?(:clj  (try
-                   (edn/read-string (slurp (or
-                                             (System/getProperty "guardrails.config")
-                                             "guardrails.edn")))
+                   (edn/read-string
+                     (slurp
+                       (or (System/getProperty "guardrails.config")
+                         "guardrails.edn")))
                    (catch Exception _ nil))
            :cljs nil))
 
@@ -56,27 +56,18 @@
         (let [config (let [cljs-compiler-config
                            (when cljs-env/*compiler*
                              (get-in @cljs-env/*compiler* [:options :external-config :guardrails]))]
-                       (when #?(:clj (or
-                                       cljs-compiler-config
-                                       (System/getProperty "guardrails.enabled")) :cljs false)
+                       (when #?(:clj  (or
+                                        cljs-compiler-config
+                                        (System/getProperty "guardrails.enabled"))
+                                :cljs false)
                          (when-not @warned?
                            (reset! warned? true)
-                           (log/warn "GUARDRAILS IS ENABLED. RUNTIME PERFORMANCE WILL BE AFFECTED.")
-                           (log/info "Guardrails was enabled because"
-                             (if cljs-compiler-config
-                               "the CLJS Compiler config enabled it"
-                               "the guardrails.enabled property is set to a (any) value.")))
-                         (merge {}
-                           (read-config-file)
-                           cljs-compiler-config)))]
-          #?(:clj
-             (when (:pro? config)
-               (try
-                 (require 'com.fulcrologic.guardrails-pro.core)
-                 (log/info "Guardrails Pro Enabled.")
-                 (catch Exception e
-                   (log/error e)
-                   (throw (ex-info "Guardrails Pro mode requested, but Guardrails Pro is not on the classpath!" {}))))))
+                           (utils/report-problem "GUARDRAILS IS ENABLED. RUNTIME PERFORMANCE WILL BE AFFECTED.")
+                           (utils/report-problem (str "Guardrails was enabled because "
+                                                   (if cljs-compiler-config
+                                                     "the CLJS Compiler config enabled it"
+                                                     "the guardrails.enabled property is set to a (any) value."))))
+                         (merge {} (read-config-file))))]
           ;#?(:clj (.println System/err config)) ; DEBUG
           config))]
 
@@ -84,22 +75,31 @@
     ([]
      (get-env-config true))
     ([cache?]
-     (let [result (if (or (not cache?)
-                        #?(:clj (= (System/getProperty "guardrails.cache") "false")))
-                    (reload-config)
-                    (let [now (identity #?(:clj (System/currentTimeMillis) :cljs (js/Date.now)))]
-                      (if (< (- now (::timestamp @*config-cache))
-                            2000)
-                        (::value @*config-cache)
-                        (::value (reset! *config-cache {::timestamp now
-                                                        ::value     (reload-config)})))))]
+     (let [result               (if (or (not cache?)
+                                      #?(:clj (= "false" (System/getProperty "guardrails.cache"))))
+                                  (reload-config)
+                                  (let [now        (identity #?(:clj (System/currentTimeMillis) :cljs (js/Date.now)))
+                                        since-last (- now (::timestamp @*config-cache))]
+                                    (if (< since-last 2000)
+                                      (::value @*config-cache)
+                                      (::value (reset! *config-cache {::timestamp now
+                                                                      ::value     (reload-config)})))))
+           cljs-compiler-config (when cljs-env/*compiler*
+                                  (get-in @cljs-env/*compiler* [:options :external-config :guardrails]))
+           mode-config #?(:cljs nil
+                          :clj  (when-let [mode (System/getProperty "guardrails.mode")]
+                                  (let [?mode (read-string mode)]
+                                    (if (#{:runtime :pro :all} ?mode)
+                                      {:mode ?mode}
+                                      (.println System/err (format "Unknown guardrails mode %s, defaulting to :runtime" mode))))))]
        #?(:clj (when (and result cljs-env/*compiler*)
-                 (let [production? (contains? #{:advanced :whitespace :simple} (get-in @cljs-env/*compiler* [:options :optimizations]))]
+                 (let [production? (contains? #{:advanced :whitespace :simple}
+                                     (get-in @cljs-env/*compiler* [:options :optimizations]))]
                    (when (and production? (not= "production" (System/getProperty "guardrails.enabled")))
                      (throw (ex-info (str "REFUSING TO COMPILE PRODUCTION BUILD WITH GUARDRAILS ENABLED!.  If you really want to take "
                                        "that performance hit then set the JVM properter guardrails.enabled to \"production\" on the CLJS compiler's JVM")
                               {}))))))
-       result))))
+       (merge result cljs-compiler-config mode-config)))))
 
 (defn get-base-config-fn
   "Base config is defaults + env config."
@@ -122,7 +122,10 @@
                           (merge a b)
                           b))
                       (get-base-config-fn)
-                      (util/get-ns-meta env)
+                      (utils/get-ns-meta env)
                       meta-maps)
                  (into {}))]
     config))
+
+(defn mode [config]
+  (get config :mode :runtime))

@@ -1,10 +1,9 @@
 (ns com.fulcrologic.guardrails.core-spec
   (:require
-    [com.fulcrologic.guardrails.config :as config]
     [com.fulcrologic.guardrails.core :as gr :refer [>defn =>]]
-    [fulcro-spec.core :refer [specification assertions when-mocking provided]]
-    [taoensso.timbre :as log]
+    [com.fulcrologic.guardrails.config :as config]
     [clojure.spec.alpha :as s]
+    [fulcro-spec.core :refer [specification assertions when-mocking provided]]
     [clojure.test :refer [deftest is]]))
 
 #?(:clj
@@ -18,7 +17,6 @@
        "loads the config from the disk file"
        (config/get-env-config false) => {:defn-macro nil
                                          :throw?     true
-                                         :emit-spec? true
                                          :expound    {:show-valid-values? true
                                                       :print-specs?       true}})))
 
@@ -28,26 +26,18 @@
 
        (provided "There is no config"
          (config/get-env-config) => nil
-         (let [output (gr/>defn* {} test-fn (rest test-fn))]
+         (let [output (gr/>defn* {} test-fn (rest test-fn) {})]
            (assertions
              "Emits a normal function"
              output => '(defn f [x] (inc x)))))
 
        (provided "There is a free config"
-         (config/get-env-config & _) => {:emit-spec? true}
+         (config/get-env-config & _) => {}
          (gr/generate-defn & _) => '(:stub/free-defn)
-         (let [output (gr/>defn* {} test-fn (rest test-fn))]
+         (let [output (gr/>defn* {} test-fn (rest test-fn) {})]
            (assertions
              "Emits the free version"
-             output => '(:stub/free-defn))))
-
-       (provided "There is a pro config"
-         (config/get-env-config) => {:pro? true}
-         (let [output (gr/>defn* {} test-fn (rest test-fn))]
-           (assertions
-             "Emits a pro macro"
-             output => `(com.fulcrologic.guardrails-pro.core/>defn
-                          ~@(rest test-fn))))))))
+             output => `(:stub/free-defn)))))))
 
 (>defn test-function
   "docstring"

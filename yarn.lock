@@ -1531,7 +1531,7 @@ negotiator@0.6.2:
   resolved "https://registry.yarnpkg.com/negotiator/-/negotiator-0.6.2.tgz#feacf7ccf525a77ae9634436a64883ffeca346fb"
   integrity sha512-hZXc7K2e+PgeI1eDBe/10Ard4ekbfrrqG8Ep+8Jmf4JID2bNg7NvCPOZN+kfF574pFQI7mum2AUqDidoKqcTOw==
 
-node-libs-browser@^2.0.0:
+node-libs-browser@^2.2.1:
   version "2.2.1"
   resolved "https://registry.yarnpkg.com/node-libs-browser/-/node-libs-browser-2.2.1.tgz#b64f513d18338625f90346d27b0d235e631f6425"
   integrity sha512-h/zcD8H9kaDZ9ALUWwlBUDo6TKF8a7qBSCSEGfjTVIYeqsioSKaAX+BN7NgiMGp6iSIXZ3PxgCu8KS3b71YK5Q==
@@ -2031,20 +2031,19 @@ sha.js@^2.4.0, sha.js@^2.4.8:
     inherits "^2.0.1"
     safe-buffer "^5.0.1"
 
-shadow-cljs-jar@1.3.1:
-  version "1.3.1"
-  resolved "https://registry.yarnpkg.com/shadow-cljs-jar/-/shadow-cljs-jar-1.3.1.tgz#a5f8ab7664b40e11345837e4c6bce8e0ac9b2cc3"
-  integrity sha512-IJSm4Gfu/wWDsOQ0wNrSxuaGdjzsd78us+3bop3cpWsoO2Igdu6VIBItYrZHRRBKl5LIZKXfnSh/2eWG3C1EFw==
+shadow-cljs-jar@1.3.2:
+  version "1.3.2"
+  resolved "https://registry.yarnpkg.com/shadow-cljs-jar/-/shadow-cljs-jar-1.3.2.tgz#97273afe1747b6a2311917c1c88d9e243c81957b"
+  integrity sha512-XmeffAZHv8z7451kzeq9oKh8fh278Ak+UIOGGrapyqrFBB773xN8vMQ3O7J7TYLnb9BUwcqadKkmgaq7q6fhZg==
 
-shadow-cljs@2.8.67:
-  version "2.8.67"
-  resolved "https://registry.yarnpkg.com/shadow-cljs/-/shadow-cljs-2.8.67.tgz#73f38e7a98e00a3945200e9fcb3060eb31db7c71"
-  integrity sha512-E7IQ3R7SOu9q664504rv7ZNIDuyctJGKVTthCPVuN9phCLlFs8csKLBk2J8fYfGh5xdjN9FwZdYchYuQkAtnSw==
+shadow-cljs@2.11.7:
+  version "2.11.7"
+  resolved "https://registry.yarnpkg.com/shadow-cljs/-/shadow-cljs-2.11.7.tgz#8194fa29653d4b9561818af3eef9d152e9843e12"
+  integrity sha512-6f4Sh5OkLMWYnxm1GkX8GBjBXiTBXKjvJO6MeoPgbcTmiw+PCl0sIx/Nrha+iVM3I2lSagt7sNWTc141YEOjLA==
   dependencies:
-    mkdirp "^0.5.1"
-    node-libs-browser "^2.0.0"
+    node-libs-browser "^2.2.1"
     readline-sync "^1.4.7"
-    shadow-cljs-jar "1.3.1"
+    shadow-cljs-jar "1.3.2"
     source-map-support "^0.4.15"
     which "^1.3.1"
     ws "^3.0.0"
