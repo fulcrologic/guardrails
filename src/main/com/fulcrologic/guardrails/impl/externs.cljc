@@ -18,7 +18,8 @@
 #?(:clj
    (defn cljc-resolve [env s]
      (letfn [(cljs-resolve []
-               (let [ast-node (cljs.analyzer.api/resolve env s)
+               (let [rslv     (some-> (find-ns 'cljs.analyzer.api) (ns-resolve 'resolve))
+                     ast-node (when rslv (rslv env s))
                      macro?   (boolean (:macro ast-node))]
                  (when (and ast-node (not macro?))
                    {::gr.reg/extern-name  `(quote ~(:name ast-node))

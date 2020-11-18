@@ -81,6 +81,13 @@
 
 (defn map-vals [f m] (if (nil? m) {} (reduce-kv (fn [m k v] (assoc m k (f v))) m m)))
 (defn map-keys [f m] (if (nil? m) {} (reduce-kv (fn [m k v] (assoc m (f k) v)) {} m)))
+(let [p! persistent!, t transient]                          ; Note `mapv`-like nil->{} semantics
+  (defn filter-vals [pred m] (if (nil? m) {} (p! (reduce-kv (fn [m k v] (if (pred v) m (dissoc! m k))) (t m) m)))))
+
+#?(:clj
+   (defn atom? [x] (instance? clojure.lang.Atom x))
+   :cljs
+   (defn ^boolean atom? [x] (instance? Atom x)))
 
 #?(:clj
    (defn compiling-cljs?
