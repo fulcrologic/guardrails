@@ -48,12 +48,17 @@
       (when-not (s/valid? spec specable-args)
         (let [problem     (exp/expound-str spec specable-args expound-opts)
               description (str
-                            "\n"
-                            fn-name
-                            (if args? " argument list" " return type") "\n"
-                            problem)]
+                           "\n"
+                           fn-name
+                           (if args? " argument list" " return type") "\n"
+                           problem)]
           (if throw?
-            (reset! valid-exception (ex-info description {}))
+            (reset! valid-exception (ex-info description
+                                             #:com.fulcrologic.guardrails{:_/type :com.fulcrologic.guardrails/validation-error
+                                                                          :fn-name fn-name
+                                                                          :failure-point (if args? :args :ret)
+                                                                          :spec spec
+                                                                          :val specable-args}))
             (utils/report-problem (str description "\n" (utils/stacktrace (ex-info "" {})))))))
       (catch #?(:cljs :default :clj Throwable) e
         (utils/report-exception e (str "BUG: Internal error in expound or clojure spec.\n"))))
