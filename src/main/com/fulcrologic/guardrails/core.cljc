@@ -54,11 +54,11 @@
                             problem)]
           (if throw?
             (reset! valid-exception (ex-info description
-                                             #:com.fulcrologic.guardrails{:_/type :com.fulcrologic.guardrails/validation-error
-                                                                          :fn-name fn-name
-                                                                          :failure-point (if args? :args :ret)
-                                                                          :spec spec
-                                                                          :val specable-args}))
+                                      #:com.fulcrologic.guardrails{:_/type        :com.fulcrologic.guardrails/validation-error
+                                                                   :fn-name       fn-name
+                                                                   :failure-point (if args? :args :ret)
+                                                                   :spec          spec
+                                                                   :val           specable-args}))
             (utils/report-problem (str description "\n" (utils/stacktrace (ex-info "" {})))))))
       (catch #?(:cljs :default :clj Throwable) e
         (utils/report-exception e (str "BUG: Internal error in expound or clojure spec.\n"))))
@@ -668,8 +668,8 @@
              mode (gr.cfg/mode cfg)]
          (cond
            (not cfg) (clean-defn 'defn body)
-           (= :pro mode) `(do (defn ~@body)
-                              ~(gr.pro/>defn-impl env body opts))
+           (#{:copilot :pro} mode) `(do (defn ~@body)
+                                        ~(gr.pro/>defn-impl env body opts))
            (#{:runtime :all} mode)
            (cond-> (remove nil? (generate-defn body private? (assoc env :form form)))
              (cljs-env? env) clj->cljs
@@ -723,7 +723,7 @@
                     [name ([params*] gspec) +])}
        [& forms]
        (when-let [cfg (gr.cfg/get-env-config)]
-         `(do ~(when (#{:pro :all} (gr.cfg/mode cfg))
+         `(do ~(when (#{:pro :copilot :all} (gr.cfg/mode cfg))
                  (gr.pro/>fdef-impl &env forms))
               ~(cond-> (remove nil? (generate-fdef &env forms))
                  (cljs-env? &env) clj->cljs))))

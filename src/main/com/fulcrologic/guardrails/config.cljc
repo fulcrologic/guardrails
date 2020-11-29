@@ -89,7 +89,7 @@
            mode-config #?(:cljs nil
                           :clj  (when-let [mode (System/getProperty "guardrails.mode")]
                                   (let [?mode (read-string mode)]
-                                    (if (#{:runtime :pro :all} ?mode)
+                                    (if (#{:runtime :pro :all :copilot} ?mode)
                                       {:mode ?mode}
                                       (.println System/err (format "Unknown guardrails mode %s, defaulting to :runtime" mode))))))]
        #?(:clj (when (and result cljs-env/*compiler*)
