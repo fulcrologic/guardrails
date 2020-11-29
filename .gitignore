@@ -57,3 +57,5 @@ docs/.jekyll-metadata
 .shadow-cljs
 resources/public/workspaces
 !.idea/runConfigurations
+pom.xml.releaseBackup
+release.properties
