@@ -1,6 +1,6 @@
 {:paths   ["src/main"],
 
- :deps    {expound/expound {:mvn/version "0.8.5"}}
+ :deps    {expound/expound {:mvn/version "0.8.7"}}
 
  :aliases {:test      {:extra-paths ["src/test"]}
 
