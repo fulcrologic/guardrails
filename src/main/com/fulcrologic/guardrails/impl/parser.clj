@@ -172,7 +172,9 @@
 (defn lambda:env->fn:impl [binds fn-form]
   (let [env (gensym "env$")]
     `(fn [~env]
-       (let [~@(mapcat (fn [sym] [sym `(grp.art/lookup-symbol ~env '~sym)]) binds)]
+       (let [~@(mapcat
+                 (fn [sym] [sym `(com.fulcrologic.copilot.artifacts/lookup-symbol ~env '~sym)])
+                 binds)]
          (fn ~@(rest fn-form))))))
 
 (defmacro lambda:env->fn [& args]
@@ -193,7 +195,7 @@
 (declare parse-fn)
 
 (defn location-of-lambda [lambda-form]
-  ((juxt :line :column) (meta (first lambda-form))))
+  ((juxt :line :column) (meta lambda-form)))
 
 (defn parse-lambdas [body extern-symbols]
   (into {}
@@ -210,7 +212,7 @@
                 ;; TODO: only for debugging
                 (assoc :DBG/env->fn `(quote ~env->fn))))))))
     (let [fns (atom [])]
-      (->> body (walk/postwalk #(do (when (>fn? %) (swap! fns conj %)) %)))
+      (->> body (walk/prewalk #(do (when (>fn? %) (swap! fns conj %)) %)))
       @fns)))
 
 (defn arity-body? [b] (seq? b))
