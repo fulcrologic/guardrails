@@ -79,7 +79,6 @@
         (utils/report-exception e (str "BUG: Internal error in expound or clojure spec.\n")))
       (finally
         (let [duration (- (now-ms) start)]
-          #?(:cljs (js/console.log duration))
           (when (> duration 100)
             (utils/report-problem (str "WARNING: " fn-name " " (if args? "argument specs" "return spec") " took " duration "ms to run."))))))
     (when @valid-exception

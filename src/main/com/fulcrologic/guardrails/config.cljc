@@ -66,12 +66,18 @@
                                         cljs-compiler-config
                                         (System/getProperty "guardrails.enabled"))
                                 :cljs false)
-                         (let [result (merge {} (read-config-file))]
+                         (let [{:keys [async? throw?] :as result} (merge {} (read-config-file))
+                               result (if (and async? throw?)
+                                        (dissoc result :async?)
+                                        result)]
                            (when-not @warned?
                              (reset! warned? true)
                              (utils/report-problem "GUARDRAILS IS ENABLED. RUNTIME PERFORMANCE WILL BE AFFECTED.")
+                             (when (and async? throw?)
+                               (utils/report-problem "INCOMPATIBLE MODES: :throw? and :async? cannot both be true. Disabling async."))
                              (utils/report-problem (str "Mode: " (mode result) (when (= :runtime (mode result))
-                                                                                 (str "  Async? " (async? result)))))
+                                                                                 (str "  Async? " (boolean (:async? result))
+                                                                                   "  Throw? " (boolean (:throw? result))))))
                              (utils/report-problem (str "Guardrails was enabled because "
                                                      (if cljs-compiler-config
                                                        "the CLJS Compiler config enabled it"
