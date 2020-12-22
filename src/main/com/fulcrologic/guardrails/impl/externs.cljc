@@ -21,9 +21,10 @@
                (let [rslv     (some-> (find-ns 'cljs.analyzer.api) (ns-resolve 'resolve))
                      ast-node (when rslv (rslv env s))
                      macro?   (boolean (:macro ast-node))]
-                 (when (and ast-node (not macro?))
-                   {::gr.reg/extern-name  `(quote ~(:name ast-node))
-                    ::gr.reg/extern-value s})))
+                 (when ast-node
+                   (cond-> {::gr.reg/extern-name `(quote ~(:name ast-node))
+                            ::gr.reg/macro?      macro?}
+                     (not macro?) (assoc ::gr.reg/extern-value s)))))
              (clojure-resolve []
                (if (contains? env s)
                  {::gr.reg/extern-name  `(quote ~s)
@@ -31,10 +32,11 @@
                  (let [sym-var (ns-resolve *ns* env s)
                        cls?    (class? sym-var)
                        macro?  (boolean (some-> sym-var meta :macro))]
-                   (when (and sym-var (not cls?) (not macro?))
-                     {::gr.reg/extern-name  `(quote ~(symbol sym-var))
-                      ::gr.reg/extern-value (symbol sym-var)
-                      ::gr.reg/class?       cls?}))))]
+                   (when (and sym-var (not cls?))
+                     (cond-> {::gr.reg/extern-name  `(quote ~(symbol sym-var))
+                              ::gr.reg/macro?       macro?}
+                       (not macro?)
+                       (assoc ::gr.reg/extern-value (symbol sym-var)))))))]
        (if (compiling-cljs? env)
          (cljs-resolve)
          (clojure-resolve)))))

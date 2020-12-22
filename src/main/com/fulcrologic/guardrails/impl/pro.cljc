@@ -7,17 +7,21 @@
 (defn compiling-cljs? [env]
   (and (:ns env) (utils/compiling-cljs?)))
 
+(defn env->NS [env]
+  (if (compiling-cljs? env)
+    (-> env :ns :name name)
+    (-> *ns* ns-name name)))
+
 (defn >defn-impl [env body opts]
   (let [externs     (gr.externs/extern-symbols env body)
-        parsed-defn (gr.parser/parse-defn body (mapv second (keys externs)))
-        NS          (if (compiling-cljs? env)
-                      (-> env :ns :name name)
-                      (-> *ns* ns-name name))]
+        NS          (env->NS env)
+        parsed-defn (gr.parser/parse-defn body externs)]
     `(do (gr.externs/record-defn! ~NS ~parsed-defn ~externs)
          (var ~(first body)))))
 
 (defn >fdef-impl [env body]
-  (let [parsed-fdef (gr.parser/parse-fdef body)]
+  (let [externs     (gr.externs/extern-symbols env body)
+        parsed-fdef (gr.parser/parse-fdef body externs)]
     `(gr.externs/record-fdef! ~parsed-fdef)))
 
 (defn >fspec-impl [env body]

@@ -91,16 +91,26 @@
     (cond-> state (seq metadata)
       (update-result assoc ::gr.reg/metadata metadata))))
 
+(defn resolve-spec [externs quoted-spec]
+  (walk/postwalk
+    #(or (when (symbol? %)
+           (some-> externs
+             (get-in [`(quote ~%) ::gr.reg/extern-name])
+             second))
+       %)
+    quoted-spec))
+
 (defn argument-specs
-  [{:as state, ::keys [args]}]
+  [{:as state, ::keys [args], {:keys [externs]} ::opts}]
   (loop-over-args state
     (set/union ret? such-that?)
     :state-fn
     (fn [state arg-spec]
-      (-> state
-        (assoc-in [::gr.reg/spec-registry `(quote ~arg-spec)] arg-spec)
-        (update-result update ::gr.reg/argument-types append (pr-str arg-spec))
-        (update-result update ::gr.reg/quoted.argument-specs append `(quote ~arg-spec))))))
+      (let [fq-arg-spec (resolve-spec externs arg-spec)]
+        (-> state
+          (assoc-in [::gr.reg/spec-registry `(quote ~fq-arg-spec)] arg-spec)
+          (update-result update ::gr.reg/argument-types append (pr-str arg-spec))
+          (update-result update ::gr.reg/quoted.argument-specs append `(quote ~fq-arg-spec)))))))
 
 (defn replace-arglist [lambda-form new-arglist]
   (apply list (first lambda-form) new-arglist (rest (rest lambda-form))))
@@ -117,13 +127,14 @@
     state))
 
 (defn return-type
-  [{:as state, [lookahead return-spec] ::args}]
+  [{:as state, [lookahead return-spec] ::args, {:keys [externs]} ::opts}]
   (if (ret? lookahead)
-    (-> state
-      (assoc-in [::gr.reg/spec-registry `(quote ~return-spec)] return-spec)
-      (update-result assoc ::gr.reg/return-type (pr-str return-spec))
-      (update-result assoc ::gr.reg/quoted.return-spec `(quote ~return-spec))
-      (next-args nnext))
+    (let [fq-return-spec (resolve-spec externs return-spec)]
+      (-> state
+        (assoc-in [::gr.reg/spec-registry `(quote ~fq-return-spec)] return-spec)
+        (update-result assoc ::gr.reg/return-type (pr-str return-spec))
+        (update-result assoc ::gr.reg/quoted.return-spec `(quote ~fq-return-spec))
+        (next-args nnext)))
     (throw (parser-error state "Syntax error: expected a return type!"))))
 
 (defn such-that
@@ -249,17 +260,20 @@
     (multiple-arities state)
     (single-arity state)))
 
-(defn parse-defn [args extern-symbols]
+(defn parse-defn [args externs]
   (-> (init-parser-state args
-        {:extern-symbols extern-symbols})
+        {:extern-symbols (mapv second (keys externs))
+         :externs        externs})
     (function-name)
     (optional-docstring)
     (function-content)
     ::result))
 
-(defn parse-fdef [args]
+(defn parse-fdef [args externs]
   (-> (init-parser-state args
-        {:assert-no-body? true})
+        {:assert-no-body? true
+         :extern-symbols  (mapv second (keys externs))
+         :externs         externs})
     (var-name)
     (function-content)
     ::result))
