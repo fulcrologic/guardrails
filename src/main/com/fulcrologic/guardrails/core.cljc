@@ -16,6 +16,7 @@
               [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs]]])
     #?@(:cljs [[com.fulcrologic.guardrails.impl.externs]])
     [com.fulcrologic.guardrails.utils :as utils]
+    [clojure.core.async :as async]
     [clojure.spec.alpha :as s]
     [clojure.string :as string]
     [expound.alpha :as exp]))
@@ -27,6 +28,16 @@
 (def | :st)
 (def <- :gen)
 
+(defonce pending-check-channel (async/chan (async/dropping-buffer 10000)))
+
+(defonce async-go-channel
+  (async/go-loop [check (async/<! pending-check-channel)]
+    (when check
+      (try
+        (check)
+        (catch #?(:clj Exception :cljs :default) _))
+      (recur (async/<! pending-check-channel)))))
+
 ;; runtime checking (both clj and cljs
 (defn- output-fn [data]
   (let [{:keys [level ?err msg_ ?ns-str ?file hostname_
@@ -37,8 +48,12 @@
       (when-let [err ?err]
         (str "\n" (utils/stacktrace err))))))
 
-(defn run-check [{:keys [args? vararg? throw? fn-name expound-opts]} spec value]
-  (let [vargs?          (and args? vararg?)
+(defn now-ms [] #?(:clj  (System/currentTimeMillis)
+                   :cljs (inst-ms (js/Date.))))
+
+(defn run-check [{:keys [args? vararg? callsite throw? fn-name expound-opts]} spec value]
+  (let [start           (now-ms)
+        vargs?          (and args? vararg?)
         varg            (if vargs? (last (seq value)) nil)
         specable-args   (if vargs?
                           (if (map? varg) (into (vec (butlast value)) (flatten (seq varg))) (into (vec (butlast value)) (seq varg)))
@@ -59,9 +74,14 @@
                                                                    :failure-point (if args? :args :ret)
                                                                    :spec          spec
                                                                    :val           specable-args}))
-            (utils/report-problem (str description "\n" (utils/stacktrace (ex-info "" {})))))))
+            (utils/report-problem (str description "\n" (utils/stacktrace (or callsite (ex-info "" {}))))))))
       (catch #?(:cljs :default :clj Throwable) e
-        (utils/report-exception e (str "BUG: Internal error in expound or clojure spec.\n"))))
+        (utils/report-exception e (str "BUG: Internal error in expound or clojure spec.\n")))
+      (finally
+        (let [duration (- (now-ms) start)]
+          #?(:cljs (js/console.log duration))
+          (when (> duration 100)
+            (utils/report-problem (str "WARNING: " fn-name " " (if args? "argument specs" "return spec") " took " duration "ms to run."))))))
     (when @valid-exception
       (throw @valid-exception)))
   nil)
@@ -545,13 +565,19 @@
                   fdef)
            :key `(s/def ~fn-name (s/fspec ~@(generate-fspec-body bs))))))))
 
+(defn callsite-exception []
+  #?(:cljs (js/Error. "")
+     :clj  (AssertionError. "")))
+
 #?(:clj
    (do
      (defn- process-defn-body
        [cfg fspec args+gspec+body]
        (let [{:keys            [env fn-name]
               {:keys [throw?]} :config} cfg
+             {:keys [async-checks?]} env
              {:keys [args body]} args+gspec+body
+             cljs?         (cljs-env? env)
              [prepost orig-body-forms] (case (key body)
                                          :prepost+body [(-> body val :prepost)
                                                         (-> body val :body)]
@@ -569,7 +595,7 @@
                                :seq (get-in arg [:as :sym])
                                :map (:as arg)
                                nil))
-             {:keys [file line]} (if (cljs-env? env)
+             {:keys [file line]} (if cljs?
                                    (meta fn-name)
                                    {:file #?(:clj *file* :cljs "N/A")
                                     :line (some-> env :form meta :line)})
@@ -594,11 +620,25 @@
                             :throw?       throw?
                             :vararg?      (boolean var-arg)
                             :expound-opts (get (gr.cfg/get-env-config) :expound {})}
-
-             args-check    `(when ~argspec (run-check ~(assoc opts :args? true) ~argspec ~sym-arg-list))
+             gosym         (if cljs? 'cljs.core.async/go 'clojure.core.async/go)
+             putsym        (if cljs? 'cljs.core.async/>! 'clojure.core.async/go)
+             args-check    (if async-checks?
+                             `(let [e# (callsite-exception)]
+                                (~gosym
+                                  (~putsym pending-check-channel (fn [] (when ~argspec (run-check (assoc
+                                                                                                    ~(assoc opts :args? true)
+                                                                                                    :callsite e#)
+                                                                                         ~argspec ~sym-arg-list))))))
+                             `(when ~argspec (run-check ~(assoc opts :args? true) ~argspec ~sym-arg-list)))
              retspec       (gensym "retspec")
              ret           (gensym "ret")
-             ret-check     `(when ~retspec (run-check ~(assoc opts :args? false) ~retspec ~ret))
+             ret-check     (if async-checks?
+                             `(let [e# (callsite-exception)]
+                                (~gosym
+                                  (~putsym pending-check-channel (fn [] (when ~retspec (run-check (assoc
+                                                                                                    ~(assoc opts :args? false)
+                                                                                                    :callsite e#) ~retspec ~ret))))))
+                             `(when ~retspec (run-check ~(assoc opts :args? false) ~retspec ~ret)))
              real-function `(fn ~arg-list ~@body-forms)
              f             (gensym "f")
              call          (if (boolean var-arg)
@@ -664,14 +704,15 @@
                  :arity-n (s/+ (s/and seq? ::args+gspec+body))))))
 
      (defn >defn* [env form body {:keys [private?] :as opts}]
-       (let [cfg  (gr.cfg/get-env-config)
-             mode (gr.cfg/mode cfg)]
+       (let [cfg    (gr.cfg/get-env-config)
+             mode   (gr.cfg/mode cfg)
+             async? (gr.cfg/async? cfg)]
          (cond
            (not cfg) (clean-defn 'defn body)
            (#{:copilot :pro} mode) `(do (defn ~@body)
                                         ~(gr.pro/>defn-impl env body opts))
            (#{:runtime :all} mode)
-           (cond-> (remove nil? (generate-defn body private? (assoc env :form form)))
+           (cond-> (remove nil? (generate-defn body private? (assoc env :form form :async-checks? async?)))
              (cljs-env? env) clj->cljs
              (= :all mode) (-> vec (conj (gr.pro/>defn-impl env body opts)) seq)))))
 

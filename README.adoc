@@ -4,8 +4,40 @@ image:https://img.shields.io/clojars/v/com.fulcrologic/guardrails.svg[link=https
 image:https://circleci.com/gh/fulcrologic/guardrails/tree/master.svg?style=svg["CircleCI", link="https://circleci.com/gh/fulcrologic/guardrails/tree/master"]
 
 Guardrails is intended to make it possible (and easy) to use specs as a loose but informative (even advisory) type system during development
-so you can better see where you are making mistakes as you make them, without affecting production build size
+so you can better see where you are making mistakes as you make them, without affecting _production_ build size
 or performance.
+
+== NEW in 1.1.0: Asyncrhonous Checking!
+
+Guardrails can now have a *much* smaller impact on your dev-time performance!
+
+I realized that most of the time in dev mode you're just running bits of code here and there in fits and starts.
+Most people rarely run super high numbers of iterations without some kind of pause. Even then: if you're running
+such a computation there is still a high probability that you'll see problems even if some of the checks are silently
+dropped.
+
+As a result, guardrails now has an asynchronous checking mode (which mainly benefits Clojure)!
+
+When this mode is enabled it pushes spec checking into a core async channel with a dropping buffer (size 10,000). The overhead
+for the `put` is just a few microseconds. This allows an alternate thread to run the checks, and as long as you
+don't have large sustained computations this can give you nearly full-production performance of your code, while
+an alternate core in your computer handles the checks.
+
+Benefits:
+
+* Much faster dev performance (Clojure only. The option works in CLJS, but there's not a second thread so there is
+no benefit).
+* High performance algorithms can use guardrails with a tolerable cost.
+
+Costs:
+
+* Checking results are queued. If a lot of slow checks get in the queue you might have to wait some time before
+you see the problems. This could cause confusion (you might be running your next expression in the REPL and see an error from the
+prior one).
+* Not all checks will run in a CPU-intensive task that queues checks rapidly.
+* Async mode is incompatible with the `:throw? true` option.
+
+To enable the async mode, just add `:async? true` in your `guardrails.edn` file.
 
 == Quick Start
 
@@ -76,12 +108,13 @@ shadow-cljs config, like so:
 
 [source, clojure]
 ------
- :builds   {:main              {:target            :browser
+{:builds   {:main              {:target            :browser
                                 ...
                                 :dev               {:compiler-options
                                                     {:closure-defines {'goog.DEBUG true}
                                                      :external-config {:guardrails {}}}}
-                                :release           {}}
+                                :release           {}}}
+ ...}
 ------
 
 Doing so will prevent you from accidentally generating a release build with guardrails enabled in case you had

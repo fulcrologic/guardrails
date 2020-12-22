@@ -20,6 +20,12 @@
           (require '[cljs.env :as cljs-env])
           (catch Exception _ (require '[com.fulcrologic.guardrails.stubs.cljs-env :as cljs-env]))))
 
+(defn mode [config]
+  (get config :mode :runtime))
+
+(defn async? [config]
+  (get config :async? false))
+
 (def default-config
   {;; Generates standard `defn` function definitions
    ;; by default. If you require composability with other
@@ -60,14 +66,17 @@
                                         cljs-compiler-config
                                         (System/getProperty "guardrails.enabled"))
                                 :cljs false)
-                         (when-not @warned?
-                           (reset! warned? true)
-                           (utils/report-problem "GUARDRAILS IS ENABLED. RUNTIME PERFORMANCE WILL BE AFFECTED.")
-                           (utils/report-problem (str "Guardrails was enabled because "
-                                                   (if cljs-compiler-config
-                                                     "the CLJS Compiler config enabled it"
-                                                     "the guardrails.enabled property is set to a (any) value."))))
-                         (merge {} (read-config-file))))]
+                         (let [result (merge {} (read-config-file))]
+                           (when-not @warned?
+                             (reset! warned? true)
+                             (utils/report-problem "GUARDRAILS IS ENABLED. RUNTIME PERFORMANCE WILL BE AFFECTED.")
+                             (utils/report-problem (str "Mode: " (mode result) (when (= :runtime (mode result))
+                                                                                 (str "  Async? " (async? result)))))
+                             (utils/report-problem (str "Guardrails was enabled because "
+                                                     (if cljs-compiler-config
+                                                       "the CLJS Compiler config enabled it"
+                                                       "the guardrails.enabled property is set to a (any) value."))))
+                           result)))]
           ;#?(:clj (.println System/err config)) ; DEBUG
           config))]
 
@@ -126,6 +135,3 @@
                       meta-maps)
                  (into {}))]
     config))
-
-(defn mode [config]
-  (get config :mode :runtime))
