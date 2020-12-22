@@ -56,7 +56,9 @@
         vargs?          (and args? vararg?)
         varg            (if vargs? (last (seq value)) nil)
         specable-args   (if vargs?
-                          (if (map? varg) (into (vec (butlast value)) (flatten (seq varg))) (into (vec (butlast value)) (seq varg)))
+                          (if (map? varg)
+                            (into (vec (butlast value)) (flatten (seq varg)))
+                            (into (vec (butlast value)) (seq varg)))
                           value)
         valid-exception (atom nil)]
     (try
@@ -68,12 +70,16 @@
                             (if args? " argument list" " return type") "\n"
                             problem)]
           (if throw?
-            (reset! valid-exception (ex-info description
-                                      #:com.fulcrologic.guardrails{:_/type        :com.fulcrologic.guardrails/validation-error
-                                                                   :fn-name       fn-name
-                                                                   :failure-point (if args? :args :ret)
-                                                                   :spec          spec
-                                                                   :val           specable-args}))
+            (reset! valid-exception
+              (ex-info description
+                (with-meta
+                  #:com.fulcrologic.guardrails
+                  {:_/type        :com.fulcrologic.guardrails/validation-error
+                   :fn-name       fn-name
+                   :failure-point (if args? :args :ret)
+                   :spec          spec}
+                  #:com.fulcrologic.guardrails
+                  {:val specable-args})))
             (utils/report-problem (str description "\n" (utils/stacktrace (or callsite (ex-info "" {}))))))))
       (catch #?(:cljs :default :clj Throwable) e
         (utils/report-exception e (str "BUG: Internal error in expound or clojure spec.\n")))
@@ -84,7 +90,6 @@
     (when @valid-exception
       (throw @valid-exception)))
   nil)
-
 
 #?(:clj
    (defn clean-defn
