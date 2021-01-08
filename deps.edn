@@ -10,7 +10,7 @@
 
            :dev       {:extra-paths ["src/dev" "src/test"]
                        :extra-deps  {thheller/shadow-cljs        {:mvn/version "2.11.7"}
-                                     fulcrologic/fulcro-spec     {:mvn/version "3.1.8"}
+                                     fulcrologic/fulcro-spec     {:mvn/version "3.1.9"}
                                      org.clojure/clojure         {:mvn/version "1.10.0"}
                                      org.clojure/tools.nrepl     {:mvn/version "0.2.13"}
                                      binaryage/devtools          {:mvn/version "1.0.0"}
