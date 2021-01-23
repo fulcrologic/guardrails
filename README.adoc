@@ -7,7 +7,7 @@ Guardrails is intended to make it possible (and easy) to use specs as a loose bu
 so you can better see where you are making mistakes as you make them, without affecting _production_ build size
 or performance.
 
-== NEW in 1.1.0: Asyncrhonous Checking!
+== NEW in 1.1.0: Asynchronous Checking!
 
 Guardrails can now have a *much* smaller impact on your dev-time performance!
 
