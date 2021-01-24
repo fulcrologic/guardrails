@@ -32,11 +32,13 @@
 
 (defonce async-go-channel
   (async/go-loop [check (async/<! pending-check-channel)]
-    (when check
-      (try
-        (check)
-        (catch #?(:clj Exception :cljs :default) _))
-      (recur (async/<! pending-check-channel)))))
+    (if check
+      (do
+        (try
+          (check)
+          (catch #?(:clj Exception :cljs :default) _))
+        (recur (async/<! pending-check-channel)))
+      (println "Guardrails ASYNC LOOP STOPPED ****************************************"))))
 
 ;; runtime checking (both clj and cljs
 (defn- output-fn [data]
@@ -74,12 +76,12 @@
               (ex-info description
                 (with-meta
                   #:com.fulcrologic.guardrails
-                  {:_/type        :com.fulcrologic.guardrails/validation-error
-                   :fn-name       fn-name
-                   :failure-point (if args? :args :ret)
-                   :spec          spec}
+                      {:_/type        :com.fulcrologic.guardrails/validation-error
+                       :fn-name       fn-name
+                       :failure-point (if args? :args :ret)
+                       :spec          spec}
                   #:com.fulcrologic.guardrails
-                  {:val specable-args})))
+                      {:val specable-args})))
             (utils/report-problem (str description "\n" (utils/stacktrace (or callsite (ex-info "" {}))))))))
       (catch #?(:cljs :default :clj Throwable) e
         (utils/report-exception e (str "BUG: Internal error in expound or clojure spec.\n")))
@@ -625,7 +627,7 @@
                             :vararg?      (boolean var-arg)
                             :expound-opts (get (gr.cfg/get-env-config) :expound {})}
              gosym         (if cljs? 'cljs.core.async/go 'clojure.core.async/go)
-             putsym        (if cljs? 'cljs.core.async/>! 'clojure.core.async/go)
+             putsym        (if cljs? 'cljs.core.async/>! 'clojure.core.async/>!)
              args-check    (if async-checks?
                              `(let [e# (callsite-exception)]
                                 (~gosym
