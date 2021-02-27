@@ -84,9 +84,7 @@
 (let [p! persistent!, t transient]                          ; Note `mapv`-like nil->{} semantics
   (defn filter-vals [pred m] (if (nil? m) {} (p! (reduce-kv (fn [m k v] (if (pred v) m (dissoc! m k))) (t m) m)))))
 
-#?(:bb
-   (defn atom? [x] (satisfies? clojure.lang.IAtom x))
-   :clj
+#?(:clj
    (defn atom? [x] (instance? clojure.lang.Atom x))
    :cljs
    (defn ^boolean atom? [x] (instance? Atom x)))
