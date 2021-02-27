@@ -15,7 +15,8 @@
 
 ;; This isn't particularly pretty, but it's how we avoid
 ;; having ClojureScript as a required dependency on Clojure
-#?(:clj (try
+#?(:bb  (require '[com.fulcrologic.guardrails.stubs.cljs-env :as cljs-env])
+   :clj (try
           (ns-unalias (find-ns 'com.fulcrologic.guardrails.utils) 'cljs-env)
           (require '[cljs.env :as cljs-env])
           (catch Exception _ (require '[com.fulcrologic.guardrails.stubs.cljs-env :as cljs-env]))))
