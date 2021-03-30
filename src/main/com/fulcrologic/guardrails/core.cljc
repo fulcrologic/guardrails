@@ -28,6 +28,35 @@
 (def | :st)
 (def <- :gen)
 
+
+(def ^:private global-context (atom (list)))
+
+(defn enter-global-context!
+  "Push a global context, accessible from all threads, onto a stack.
+   Used to add information to what guardrails will report when a function failed a check."
+  [ctx]
+  (swap! global-context (partial cons ctx)))
+
+(defn leave-global-context!
+  "Pops a global context (see `enter-global-context!`).
+   Should be passed the same context that was pushed, although is not enforced, as it's only to be easily compatible with fulcro-spec's hooks API."
+  [ctx]
+  (swap! global-context rest))
+
+#?(:clj
+   (defmacro with-global-context
+     "Wraps the body with an enter and leave global context.
+      Will always call leave as it uses a try finally block.
+      See `enter-global-context!`."
+     [ctx & body]
+     `(do (enter-global-context! ~ctx)
+        (try ~@body
+          (finally
+            (leave-global-context! ~ctx))))))
+
+(defn- get-global-context [] (first @global-context))
+
+
 (defonce pending-check-channel (async/chan (async/dropping-buffer 10000)))
 
 (defonce async-go-channel
@@ -70,16 +99,19 @@
                             "\n"
                             fn-name
                             (if args? " argument list" " return type") "\n"
-                            problem)]
+                            problem)
+              context     (get-global-context)]
           (if throw?
             (reset! valid-exception
-              (ex-info description
+              (ex-info (cond->> description context
+                         (str "\nContext: " context))
                 (with-meta
                   #:com.fulcrologic.guardrails
                       {:_/type        :com.fulcrologic.guardrails/validation-error
                        :fn-name       fn-name
                        :failure-point (if args? :args :ret)
-                       :spec          spec}
+                       :spec          spec
+                       :context       context}
                   #:com.fulcrologic.guardrails
                       {:val specable-args})))
             (utils/report-problem (str description "\n" (utils/stacktrace (or callsite (ex-info "" {}))))))))

@@ -3,7 +3,7 @@
     [com.fulcrologic.guardrails.core :as gr :refer [>defn =>]]
     [com.fulcrologic.guardrails.config :as config]
     [clojure.spec.alpha :as s]
-    [fulcro-spec.core :refer [specification assertions when-mocking provided]]
+    [fulcro-spec.core :refer [specification assertions component when-mocking provided]]
     [clojure.test :refer [deftest is]]))
 
 #?(:clj
