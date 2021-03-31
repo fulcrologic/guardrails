@@ -82,7 +82,9 @@
 (defn now-ms [] #?(:clj  (System/currentTimeMillis)
                    :cljs (inst-ms (js/Date.))))
 
-(defn run-check [{:keys [args? vararg? callsite throw? fn-name expound-opts]} spec value]
+(def tap (resolve 'tap>))
+
+(defn run-check [{:keys [tap>? args? vararg? callsite throw? fn-name expound-opts]} spec value]
   (let [start           (now-ms)
         vargs?          (and args? vararg?)
         varg            (if vargs? (last (seq value)) nil)
@@ -101,6 +103,14 @@
                             (if args? " argument list" " return type") "\n"
                             problem)
               context     (get-global-context)]
+          (when (and tap tap>?)
+            (tap
+              #:com.fulcrologic.guardrails
+              {:_/type        :com.fulcrologic.guardrails/validation-error
+               :fn-name       fn-name
+               :failure-point (if args? :args :ret)
+               :spec          spec
+               :explain-data  (s/explain-data spec specable-args)}))
           (if throw?
             (reset! valid-exception
               (ex-info (cond->> description context
@@ -612,7 +622,7 @@
      (defn- process-defn-body
        [cfg fspec args+gspec+body]
        (let [{:keys            [env fn-name]
-              {:keys [throw?]} :config} cfg
+              {:keys [throw? tap>?]} :config} cfg
              {:keys [async-checks?]} env
              {:keys [args body]} args+gspec+body
              cljs?         (cljs-env? env)
@@ -655,6 +665,7 @@
              where         (str file ":" line " " fn-name "'s")
              argspec       (gensym "argspec")
              opts          {:fn-name      where
+                            :tap>?        tap>?
                             :throw?       throw?
                             :vararg?      (boolean var-arg)
                             :expound-opts (get (gr.cfg/get-env-config) :expound {})}

@@ -322,7 +322,10 @@ The default config goes in top of project as `guardrails.edn`:
 
  ;; should a spec failure on args or ret throw an execption?
  ;; (always logs an informative message)
- :throw?     false}
+ :throw?     false
+
+ ;; should a spec failure be forwarded through tap> ?
+ :tap?>      false}
 -----
 
 You can override the config file *name* using JVM option
