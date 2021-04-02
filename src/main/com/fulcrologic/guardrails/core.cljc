@@ -779,7 +779,9 @@
      (s/fdef >defn- :args ::>defn-args)
 
      (defmacro >def
-       "DEPRECATED: to be removed"
+       "Just like Clojure s/def, except there is a stub for this in the `noop` namespace, which you can substitute via
+        CLJS build parameters, turning it into code that can be dead-code eliminated in a CLJS production build. See the
+        docstring for the `com.fulcrologic.guardrails.noop` namespace."
        ([k spec-form]
         (cond-> `(s/def ~k ~spec-form)
           (cljs-env? &env) clj->cljs))

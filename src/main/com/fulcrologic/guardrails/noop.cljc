@@ -1,6 +1,6 @@
 (ns com.fulcrologic.guardrails.noop
   "
-  EXPERIMENTAL.
+  ALPHA.
 
   Same interface as `core`, but the items in this namespace are no-ops. This is useful for
   making cljs builds smaller by eliding spec internment that cannot be dead-code eliminated.
@@ -15,7 +15,9 @@
   ```
 
   WARNING: Make sure you don't need to specs at runtime for anything. Use `s/def` for those, and
-  `>fdef` for ones that you want to disappear at runtime."
+  `>def` for ones that you want to disappear at runtime.
+
+  This will also eliminate the guardrails requires of things like expound, core.async, and core.stacktrace."
   #?(:cljs (:require-macros com.fulcrologic.guardrails.noop)))
 
 (def => :ret)

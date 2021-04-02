@@ -55,7 +55,8 @@ And code as follows:
     [com.fulcrologic.guardrails.core :refer [>defn >def | ? =>]]))
 
 ;; >def (and >fdef) can be used to remove specs from production builds. Use them to define
-;; specs that you only need in development, and they will not hurt CLJS production build size.
+;; specs that you only need in development. See the docstring of
+;; `com.fulcrologic.guardrails.noop` for details.
 (>def ::thing (s/or :i int? :s string?))
 
 ;; When guardrails is disabled this will just be a normal `defn`, and no fspec overhead will
@@ -153,11 +154,11 @@ a whole other file, inclusion needs to be via a development ns, and things easil
 This library is a middle ground between the features of raw Clojure spec and George Lipov's Ghostwheel.
 Much of the source code in this library is directly from https://github.com/gnl/ghostwheel[Ghostwheel].
 
-This library is interested in providing:
+This library's goals are:
 
 - The ability to use a simple DSL to declare the spec with a function (taken from Ghostwheel). See that library's docs
 for *syntax* of `>defn`, `>defn`, etc.
-- The ability to control when specs are actually emitted separate from checking (to control build size in cljs).
+- The ability to support dead-code elimination in cljs.
 - No reliance on generative testing facilities/checkers. No orchestra/instrument stuff.
 - Good output when a function receives or emits an incorrect value.
 - The ability to control if a spec failure causes a throw (instrument always throws), because a lot of the time
@@ -316,8 +317,8 @@ The default config goes in top of project as `guardrails.edn`:
  :expound    {:show-valid-values? true
               :print-specs?       true}
 
- ;; should an fspec be emitted for functions
- :emit-spec? true
+ ;; Check specs in parallel (CLJ only)
+ :async? true
 
  ;; should a spec failure on args or ret throw an execption?
  ;; (always logs an informative message)
