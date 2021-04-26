@@ -143,6 +143,14 @@ You can set JVM options in shadow-cljs using the `:jvm-opts` key:
 
 but this is highly discouraged.
 
+=== Dead Code Elimination
+
+There is a a noop namespace that can be used in your build settings to attempt to eliminate all traces of guardrails
+and dependent code. This will not remove spec dependencies unless you only use spec for guardrails, so do similar tricks
+for your inclusions of spec namespaces.
+
+See https://github.com/fulcrologic/guardrails/blob/develop/src/main/com/fulcrologic/guardrails/noop.cljc[noop.cljc].
+
 == Why?
 
 Clojure spec's instrument (and Orchestra's outstrument) have a number of disadvantages when trying to use them for
