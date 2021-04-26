@@ -9,9 +9,7 @@
   of `com.fulcrologic.guardrails.core` to this ns.
 
   ```
-     :js-options {:resolve {\"com.fulcrologic.guardrails.core\"
-                   {:target  :global
-                    :require \"com.fulcrologic.guardrails.noop\"}}}
+     :release  {:build-options   {:ns-aliases    {com.fulcrologic.guardrails.core com.fulcrologic.guardrails.noop}}}
   ```
 
   WARNING: Make sure you don't need to specs at runtime for anything. Use `s/def` for those, and
