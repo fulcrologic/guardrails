@@ -4,7 +4,7 @@
     <groupId>com.fulcrologic</groupId>
     <artifactId>guardrails</artifactId>
     <packaging>jar</packaging>
-    <version>1.1.5-SNAPSHOT</version>
+    <version>1.1.5</version>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
@@ -21,7 +21,7 @@
         <url>https://github.com/fulcrologic/guardrails</url>
         <connection>scm:git:git://github.com/fulcrologic/guardrails.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/fulcrologic/guardrails.git</developerConnection>
-        <tag>cfc60d201a3fde9bd4a4d369a975469c340c61f7</tag>
+        <tag>guardrails-1.1.5</tag>
     </scm>
     <distributionManagement>
         <repository>
