@@ -333,7 +333,7 @@ The default config goes in top of project as `guardrails.edn`:
  :throw?     false
 
  ;; should a spec failure be forwarded through tap> ?
- :tap?>      false}
+ :tap>?      false}
 -----
 
 You can override the config file *name* using JVM option
