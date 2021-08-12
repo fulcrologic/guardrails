@@ -2,6 +2,7 @@
   (:require
     [com.fulcrologic.guardrails.impl.externs :as gr.externs]
     [com.fulcrologic.guardrails.impl.parser :as gr.parser]
+    [com.fulcrologic.guardrails.registry :as gr.reg]
     [com.fulcrologic.guardrails.utils :as utils]))
 
 (defn compiling-cljs? [env]
@@ -12,10 +13,18 @@
     (-> env :ns :name name)
     (-> *ns* ns-name name)))
 
+(defn env->namespace-meta [env]
+  (if (compiling-cljs? env)
+    (-> env :ns :meta)
+    (-> *ns* meta)))
+
 (defn >defn-impl [env body opts]
   (let [externs     (gr.externs/extern-symbols env body)
         NS          (env->NS env)
-        parsed-defn (gr.parser/parse-defn body externs)]
+        {:guardrails/keys [spec-system]
+         :or              {spec-system :org.clojure/spec1}} (env->namespace-meta env)
+        parsed-defn (assoc (gr.parser/parse-defn body externs)
+                      ::gr.reg/spec-system spec-system)]
     `(do (gr.externs/record-defn! ~NS ~parsed-defn ~externs)
          (var ~(first body)))))
 

@@ -88,8 +88,8 @@
   [{:as state, gspec ::args}]
   (let [metadata (some-> (merge (::fn-meta state) (meta gspec))
                    (dissoc :source :file :line :end-line :column :end-column))]
-    (cond-> state (seq metadata)
-      (update-result assoc ::gr.reg/metadata metadata))))
+    (cond-> state
+      (seq metadata) (update-result assoc ::gr.reg/metadata metadata))))
 
 (defn resolve-spec [externs quoted-spec]
   (walk/postwalk

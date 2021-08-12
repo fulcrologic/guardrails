@@ -33,8 +33,8 @@
                        cls?    (class? sym-var)
                        macro?  (boolean (some-> sym-var meta :macro))]
                    (when (and sym-var (not cls?))
-                     (cond-> {::gr.reg/extern-name  `(quote ~(symbol sym-var))
-                              ::gr.reg/macro?       macro?}
+                     (cond-> {::gr.reg/extern-name `(quote ~(symbol sym-var))
+                              ::gr.reg/macro?      macro?}
                        (not macro?)
                        (assoc ::gr.reg/extern-value (symbol sym-var)))))))]
        (if (compiling-cljs? env)
@@ -80,3 +80,31 @@
 (defn record-fdef! [external-function]
   (register-specs! external-function)
   (register-external-function! external-function))
+
+(defn function-info
+  "Returns the information known about the given qualified symbol (if it was declared with >defn in
+  copilot mode, or has register a gspec on an external function) ."
+  [qualified-symbol]
+  (let [spc         (namespace qualified-symbol)
+        simple-name (symbol (name qualified-symbol))]
+    (or
+      (get @external-function-registry qualified-symbol)
+      (get-in @function-registry [spc simple-name]))))
+
+(defn pure?
+  "Returns true if the given fully-qualified symbol was declared with >defn and the arity (which is a number
+   or :n) is marked as pure."
+  [qualified-symbol arity]
+  (boolean
+    (let [info       (function-info qualified-symbol)
+          has-arity? (boolean (get-in info [::gr.reg/arities arity]))
+          {:keys [pure pure?]} (get-in info [::gr.reg/arities (if has-arity? arity :n) ::gr.reg/gspec ::gr.reg/metadata])]
+      (or pure pure?))))
+
+(defn spec-system
+  "Returns the function spec system that was used in the type signature of the given symbol, or nil if that
+   function isn't registered with guardrails."
+  [qualified-symbol]
+  (let [{::gr.reg/keys [spec-system] :as info} (function-info qualified-symbol)]
+    (when info
+      (or spec-system :org.clojure/spec1))))
