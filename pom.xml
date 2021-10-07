@@ -8,7 +8,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
-    <name>fulcro</name>
+    <name>guardrails</name>
     <description>A library for using Clojure specs more like a type system during development.</description>
     <url>https://github.com/fulcrologic/guardrails</url>
     <licenses>
