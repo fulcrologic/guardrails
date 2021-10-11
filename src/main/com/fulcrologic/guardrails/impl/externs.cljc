@@ -109,15 +109,16 @@
     (when info
       (or spec-system :org.clojure/spec1))))
 
-(defn run-registry-function
-  "Run the given function defined by the qualified-symbol if and only if that arity of the function is pure.
+#?(:clj
+   (defn run-registry-function
+     "Run the given function defined by the qualified-symbol if and only if that arity of the function is pure.
 
-   qualified-symbol - The symbol of the function
-   args - a vector of arguments to pass to it.
+      qualified-symbol - The symbol of the function
+      args - a vector of arguments to pass to it.
 
-   Throws IllegalArgumentException if that function arity is not marked pure."
-  [qualified-symbol args]
-  (if (pure? qualified-symbol (count args))
-    (let [{::gr.reg/keys [fn-ref]} (function-info qualified-symbol)]
-      (apply fn-ref args))
-    (throw (IllegalArgumentException. (str qualified-symbol " is not a pure function.")))))
+      Throws IllegalArgumentException if that function arity is not marked pure."
+     [qualified-symbol args]
+     (if (pure? qualified-symbol (count args))
+       (let [{::gr.reg/keys [fn-ref]} (function-info qualified-symbol)]
+         (apply fn-ref args))
+       (throw (IllegalArgumentException. (str qualified-symbol " is not a pure function."))))))
