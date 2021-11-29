@@ -773,7 +773,7 @@
        {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                     [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
        [& forms]
-       (>defn* &env &form forms {:private false}))
+       (>defn* &env &form forms {:private? false}))
 
      (s/fdef >defn :args ::>defn-args)
 
@@ -785,7 +785,13 @@
        {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                     [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
        [& forms]
-       (>defn* &env &form forms {:private true}))
+       (>defn* &env &form forms {:private? true}))
+
+     (comment
+       (>defn- test-function [] [=> nil?] nil)
+       (clojure.pprint/pprint (meta #'test-function))
+       (assert (true? (:private (meta #'test-function))))
+       ,)
 
      (s/fdef >defn- :args ::>defn-args)
 
