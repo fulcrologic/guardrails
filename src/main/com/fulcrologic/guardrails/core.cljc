@@ -791,6 +791,10 @@
        (>defn- test-function [] [=> nil?] nil)
        (clojure.pprint/pprint (meta #'test-function))
        (assert (true? (:private (meta #'test-function))))
+
+       (>defn test-function2 [] [=> nil?] nil)
+       (assert (nil? (:private (meta #'test-function2))))
+
        ,)
 
      (s/fdef >defn- :args ::>defn-args)
