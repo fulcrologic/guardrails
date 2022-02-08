@@ -4,9 +4,10 @@
  :deps    {expound/expound        {:mvn/version "0.8.7"}
            org.clojure/core.async {:mvn/version "1.3.618"}}
 
- :aliases {:test      {:extra-paths ["src/test"]
+ :aliases {:test      {:extra-paths ["src/test" "src/test-clj-kondo"]
                        :extra-deps  {org.clojure/test.check  {:mvn/version "1.1.0"}
-                                     fulcrologic/fulcro-spec {:mvn/version "3.1.9"}}}
+                                     fulcrologic/fulcro-spec {:mvn/version "3.1.9"}
+                                     clj-kondo/clj-kondo     {:mvn/version "2022.01.15"}}}
 
            :clj-tests {:extra-paths ["src/test"]
                        :main-opts   ["-m" "kaocha.runner"]
@@ -18,4 +19,3 @@
                                      org.clojure/tools.nrepl     {:mvn/version "0.2.13"}
                                      binaryage/devtools          {:mvn/version "1.0.0"}
                                      org.clojure/tools.namespace {:mvn/version "1.0.0"}}}}}
-

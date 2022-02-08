@@ -3,26 +3,17 @@
 
 (def =>? #{'=> :ret})
 (def |? #{'| :st})
+(def known-sym? #{'=> '| '<-})
 
-(defn >defn
-  [{:keys [node]}]
-  (let [args       (rest (:children node))
-        fn-name    (first args)
-        ?docstring (when (string? (api/sexpr (second args)))
-                     (second args))
-        args       (if ?docstring
-                     (nnext args)
-                     (next args))
-        argv       (first args)
-        gspec      (second args)
-        body       (nnext args)
-        new-node   (api/list-node
-                     (list*
-                        (api/token-node 'defn)
-                        fn-name
-                        argv
-                        gspec
-                        body))]
+(defn args+gspec+body [nodes]
+  (let [argv      (first nodes)
+        gspec     (second nodes)
+        body      (nnext nodes)
+        gspec'    (->> gspec
+                       (:children)
+                       (filterv #(-> % :value known-sym? not))
+                       (api/vector-node))
+        new-nodes (list* argv gspec' body)]
     ;; gspec: [arg-specs* (| arg-preds+)? => ret-spec (| fn-preds+)? (<- generator-fn)?]
     (if (not= 1 (count (filter =>? (api/sexpr gspec))))
       (api/reg-finding! (merge (meta gspec)
@@ -58,4 +49,26 @@
                                   {:message (str "Guardrail spec does not match function signature. "
                                               "Too " (if too-many-specs? "many" "few") " specs.")
                                    :type    :clj-kondo.fulcro.>defn/invalid-gspec})))))))
+    new-nodes))
+
+(defn >defn
+  [{:keys [node]}]
+  (let [args       (rest (:children node))
+        fn-name    (first args)
+        ?docstring (when (some-> (second args) api/sexpr string?)
+                     (second args))
+        args       (if ?docstring
+                     (nnext args)
+                     (next args))
+        post-docs  (if (every? #(-> % api/sexpr list?) args)
+                     (mapv #(-> % :children args+gspec+body api/list-node) args)
+                     (args+gspec+body args))
+        post-name  (if ?docstring
+                     (list* ?docstring post-docs)
+                     post-docs)
+        new-node   (api/list-node
+                    (list*
+                     (api/token-node 'defn)
+                     fn-name
+                     post-name))]
     {:node new-node}))
