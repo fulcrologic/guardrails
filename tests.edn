@@ -3,7 +3,12 @@
              :ns-patterns  ["-test$" "-spec$"]
              :test-paths   ["src/test"]
              :skip-meta    [:integration]
-             :source-paths ["src/main"]}]
+             :source-paths ["src/main"]}
+            {:id           :clj-kondo-hooks
+             :ns-patterns  ["-test$" "-spec$"]
+             :test-paths   ["src/test-clj-kondo"]
+             :skip-meta    [:integration]
+             :source-paths ["src/clj-kondo"]}]
  :reporter [fulcro-spec.reporters.terminal/fulcro-report]
  :plugins  []
  :capture-output? false

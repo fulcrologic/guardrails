@@ -59,3 +59,4 @@ resources/public/workspaces
 !.idea/runConfigurations
 pom.xml.releaseBackup
 release.properties
+/.clj-kondo/*/
