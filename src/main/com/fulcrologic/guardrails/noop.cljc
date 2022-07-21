@@ -12,7 +12,7 @@
      :release  {:build-options   {:ns-aliases    {com.fulcrologic.guardrails.core com.fulcrologic.guardrails.noop}}}
   ```
 
-  WARNING: Make sure you don't need to specs at runtime for anything. Use `s/def` for those, and
+  WARNING: Make sure you don't need the specs at runtime for anything. Use `s/def` for those, and
   `>def` for ones that you want to disappear at runtime.
 
   This will also eliminate the guardrails requires of things like expound, core.async, and core.stacktrace."
