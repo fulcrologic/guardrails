@@ -28,7 +28,7 @@
 (def | :st)
 (def <- :gen)
 
-
+(def ^:dynamic *run-checks?* true)
 (def ^:private global-context (atom (list)))
 
 (defn enter-global-context!
@@ -84,55 +84,64 @@
 
 (def tap (resolve 'tap>))
 
-(defn run-check [{:keys [tap>? args? vararg? callsite throw? fn-name expound-opts]} spec value]
-  (let [start           (now-ms)
-        vargs?          (and args? vararg?)
-        varg            (if vargs? (last (seq value)) nil)
-        specable-args   (if vargs?
-                          (if (map? varg)
-                            (into (vec (butlast value)) (flatten (seq varg)))
-                            (into (vec (butlast value)) (seq varg)))
-                          value)
-        valid-exception (atom nil)]
-    (try
-      (when-not (s/valid? spec specable-args)
-        (let [problem     (exp/expound-str spec specable-args expound-opts)
-              description (str
-                            "\n"
-                            fn-name
-                            (if args? " argument list" " return type") "\n"
-                            problem)
-              context     (get-global-context)]
-          (when (and tap tap>?)
-            (tap
-              #:com.fulcrologic.guardrails
-              {:_/type        :com.fulcrologic.guardrails/validation-error
-               :fn-name       fn-name
-               :failure-point (if args? :args :ret)
-               :spec          spec
-               :explain-data  (s/explain-data spec specable-args)}))
-          (if throw?
-            (reset! valid-exception
-              (ex-info (cond->> description context
-                         (str "\nContext: " context))
-                (with-meta
-                  #:com.fulcrologic.guardrails
-                      {:_/type        :com.fulcrologic.guardrails/validation-error
-                       :fn-name       fn-name
-                       :failure-point (if args? :args :ret)
-                       :spec          spec
-                       :context       context}
-                  #:com.fulcrologic.guardrails
-                      {:val specable-args})))
-            (utils/report-problem (str description "\n" (utils/stacktrace (or callsite (ex-info "" {}))))))))
-      (catch #?(:cljs :default :clj Throwable) e
-        (utils/report-exception e (str "BUG: Internal error in expound or clojure spec.\n")))
-      (finally
-        (let [duration (- (now-ms) start)]
-          (when (> duration 100)
-            (utils/report-problem (str "WARNING: " fn-name " " (if args? "argument specs" "return spec") " took " duration "ms to run."))))))
-    (when @valid-exception
-      (throw @valid-exception)))
+(defn run-check [{:keys [tap>? args? vararg? callsite throw? fn-name expound-opts
+                         after-arg-check after-ret-check gspec-info]}
+                 spec
+                 value]
+  (when *run-checks?*
+    (let [start           (now-ms)
+          vargs?          (and args? vararg?)
+          varg            (if vargs? (last (seq value)) nil)
+          specable-args   (if vargs?
+                            (if (map? varg)
+                              (into (vec (butlast value)) (flatten (seq varg)))
+                              (into (vec (butlast value)) (seq varg)))
+                            value)
+          valid-exception (atom nil)]
+      (try
+        (if (s/valid? spec specable-args)
+          (if args?
+            (when (and after-arg-check gspec-info)
+              (after-arg-check (-> gspec-info :args :args) specable-args))
+            (when (and after-ret-check gspec-info)
+              (after-ret-check (:ret gspec-info) specable-args)))
+          (let [problem     (exp/expound-str spec specable-args expound-opts)
+                description (str
+                             "\n"
+                             fn-name
+                             (if args? " argument list" " return type") "\n"
+                             problem)
+                context     (get-global-context)]
+            (when (and tap tap>?)
+              (tap
+               #:com.fulcrologic.guardrails
+                       {:_/type        :com.fulcrologic.guardrails/validation-error
+                        :fn-name       fn-name
+                        :failure-point (if args? :args :ret)
+                        :spec          spec
+                        :explain-data  (s/explain-data spec specable-args)}))
+            (if throw?
+              (reset! valid-exception
+                      (ex-info (cond->> description context
+                                        (str "\nContext: " context))
+                               (with-meta
+                                #:com.fulcrologic.guardrails
+                                        {:_/type        :com.fulcrologic.guardrails/validation-error
+                                         :fn-name       fn-name
+                                         :failure-point (if args? :args :ret)
+                                         :spec          spec
+                                         :context       context}
+                                #:com.fulcrologic.guardrails
+                                        {:val specable-args})))
+              (utils/report-problem (str description "\n" (utils/stacktrace (or callsite (ex-info "" {}))))))))
+        (catch #?(:cljs :default :clj Throwable) e
+          (utils/report-exception e (str "BUG: Internal error in expound or clojure spec.\n")))
+        (finally
+          (let [duration (- (now-ms) start)]
+            (when (> duration 100)
+              (utils/report-problem (str "WARNING: " fn-name " " (if args? "argument specs" "return spec") " took " duration "ms to run."))))))
+      (when @valid-exception
+        (throw @valid-exception))))
   nil)
 
 #?(:clj
@@ -622,9 +631,9 @@
      (defn- process-defn-body
        [cfg fspec args+gspec+body]
        (let [{:keys            [env fn-name]
-              {:keys [throw? tap>?]} :config} cfg
+              {:keys [throw? tap>? after-arg-check after-ret-check]} :config} cfg
              {:keys [async-checks?]} env
-             {:keys [args body]} args+gspec+body
+             {:keys [args gspec body]} args+gspec+body
              cljs?         (cljs-env? env)
              [prepost orig-body-forms] (case (key body)
                                          :prepost+body [(-> body val :prepost)
@@ -664,11 +673,18 @@
              body-forms    orig-body-forms
              where         (str file ":" line " " fn-name "'s")
              argspec       (gensym "argspec")
-             opts          {:fn-name      where
-                            :tap>?        tap>?
-                            :throw?       throw?
-                            :vararg?      (boolean var-arg)
-                            :expound-opts (get (gr.cfg/get-env-config) :expound {})}
+             opts          (merge {:fn-name      where
+                                   :tap>?        tap>?
+                                   :throw?       throw?
+                                   :vararg?      (boolean var-arg)
+                                   :expound-opts (get (gr.cfg/get-env-config) :expound {})}
+                                  (into {}
+                                        (filter (fn [[_k v]] (some? v))
+                                                {:after-arg-check after-arg-check
+                                                 :after-ret-check after-ret-check
+                                                 :gspec-info      (when (or after-arg-check
+                                                                            after-ret-check)
+                                                                    `(quote ~gspec))})))
              gosym         (if cljs? 'cljs.core.async/go 'clojure.core.async/go)
              putsym        (if cljs? 'cljs.core.async/>! 'clojure.core.async/>!)
              args-check    (if async-checks?
