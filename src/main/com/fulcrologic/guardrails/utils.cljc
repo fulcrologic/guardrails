@@ -103,13 +103,19 @@
    #?(:cljs (str err)
       :clj  (with-out-str (st/print-stack-trace err)))))
 
+(let [ansi-color-regex #"\033\[[0-9;]*m"]
+  (defn strip-colors [s]
+    (clojure.string/replace s ansi-color-regex "")))
+
 (defn report-problem [message]
+  (println message)
   #?(:clj
      (.println System/err message)
      :cljs
      (js/console.error message)))
 
 (defn report-exception [e message]
+  (println message)
   #?(:clj
      (.println System/err (str message \n (.getMessage ^Exception e) "\n" (stacktrace e)))
      :cljs

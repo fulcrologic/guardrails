@@ -67,7 +67,7 @@
                                         cljs-compiler-config
                                         (System/getProperty "guardrails.enabled"))
                                 :cljs false)
-                         (let [{:keys [async? throw?] :as result} (merge {} (read-config-file))
+                         (let [{:keys [async? throw?] :as result} (or cljs-compiler-config (merge {} (read-config-file)))
                                result (if (and async? throw?)
                                         (dissoc result :async?)
                                         result)]

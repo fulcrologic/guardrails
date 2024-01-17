@@ -7,18 +7,22 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
+;; TASK: add support for custom Malli registry
+;; TODO: add support for checking ret predicate
+
 (ns com.fulcrologic.guardrails.core
   #?(:cljs (:require-macros com.fulcrologic.guardrails.core))
   (:require
-    #?@(:clj [[clojure.walk :as walk]
+    #?@(:clj [[clojure.set :as set]
+              [clojure.walk :as walk]
               [com.fulcrologic.guardrails.config :as gr.cfg]
               [com.fulcrologic.guardrails.impl.pro :as gr.pro]
-              [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs]]])
+              [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs strip-colors]]])
     #?@(:cljs [[com.fulcrologic.guardrails.impl.externs]])
-    [com.fulcrologic.guardrails.utils :as utils]
     [clojure.core.async :as async]
     [clojure.spec.alpha :as s]
     [clojure.string :as string]
+    [com.fulcrologic.guardrails.utils :as utils]
     [expound.alpha :as exp]))
 
 ;; It doesn't actually matter what these are bound to, they are stripped by
@@ -28,18 +32,18 @@
 (def | :st)
 (def <- :gen)
 
-
 (def ^:private global-context (atom (list)))
 
 (defn enter-global-context!
-  "Push a global context, accessible from all threads, onto a stack.
-   Used to add information to what guardrails will report when a function failed a check."
+  "Push a global context, accessible from all threads, onto a stack. Used to add
+  information to what guardrails will report when a function failed a check."
   [ctx]
   (swap! global-context (partial cons ctx)))
 
 (defn leave-global-context!
-  "Pops a global context (see `enter-global-context!`).
-   Should be passed the same context that was pushed, although is not enforced, as it's only to be easily compatible with fulcro-spec's hooks API."
+  "Pops a global context (see `enter-global-context!`). Should be passed the
+  same context that was pushed, although is not enforced, as it's only to be
+  easily compatible with fulcro-spec's hooks API."
   [ctx]
   (swap! global-context rest))
 
@@ -84,7 +88,14 @@
 
 (def tap (resolve 'tap>))
 
-(defn run-check [{:keys [tap>? args? vararg? callsite throw? fn-name expound-opts]} spec value]
+(defn humanize-spec [expound-opts explain-data]
+  (with-out-str
+    ((exp/custom-printer expound-opts) explain-data)))
+
+(defn run-check [{:keys [malli? tap>? args? vararg? callsite throw? fn-name
+                         validate-fn explain-fn humanize-fn]}
+                 spec
+                 value]
   (let [start           (now-ms)
         vargs?          (and args? vararg?)
         varg            (if vargs? (last (seq value)) nil)
@@ -95,38 +106,39 @@
                           value)
         valid-exception (atom nil)]
     (try
-      (when-not (s/valid? spec specable-args)
-        (let [problem     (exp/expound-str spec specable-args expound-opts)
-              description (str
-                            "\n"
-                            fn-name
-                            (if args? " argument list" " return type") "\n"
-                            problem)
-              context     (get-global-context)]
+      (when-not (validate-fn spec specable-args)
+        (let [explain-data  (explain-fn spec specable-args)
+              explain-human (humanize-fn explain-data)
+              description   (str
+                              "\n"
+                              fn-name
+                              (if args? " argument list" " return type") "\n"
+                              explain-human)
+              context       (get-global-context)]
           (when (and tap tap>?)
-            (tap
-              #:com.fulcrologic.guardrails
-              {:_/type        :com.fulcrologic.guardrails/validation-error
-               :fn-name       fn-name
-               :failure-point (if args? :args :ret)
-               :spec          spec
-               :explain-data  (s/explain-data spec specable-args)}))
+            (tap #:com.fulcrologic.guardrails
+                    {:_/type        :com.fulcrologic.guardrails/validation-error
+                     :fn-name       fn-name
+                     :failure-point (if args? :args :ret)
+                     :spec          spec
+                     :explain-data  explain-data
+                     :explain-human (strip-colors explain-human)}))
           (if throw?
             (reset! valid-exception
               (ex-info (cond->> description context
                          (str "\nContext: " context))
                 (with-meta
                   #:com.fulcrologic.guardrails
-                      {:_/type        :com.fulcrologic.guardrails/validation-error
-                       :fn-name       fn-name
-                       :failure-point (if args? :args :ret)
-                       :spec          spec
-                       :context       context}
+                          {:_/type        :com.fulcrologic.guardrails/validation-error
+                           :fn-name       fn-name
+                           :failure-point (if args? :args :ret)
+                           :spec          spec
+                           :context       context}
                   #:com.fulcrologic.guardrails
-                      {:val specable-args})))
+                          {:val specable-args})))
             (utils/report-problem (str description "\n" (utils/stacktrace (or callsite (ex-info "" {}))))))))
       (catch #?(:cljs :default :clj Throwable) e
-        (utils/report-exception e (str "BUG: Internal error in expound or clojure spec.\n")))
+        (utils/report-exception e (str "BUG: Internal error in " (if malli? "Malli.\n" "expound or clojure spec.\n"))))
       (finally
         (let [duration (- (now-ms) start)]
           (when (> duration 100)
@@ -137,8 +149,8 @@
 
 #?(:clj
    (defn clean-defn
-     "This removes the gspec and returns a
-     clean defn for use in production builds."
+     "This removes the gspec and returns a clean defn for use in production
+     builds."
      [op forms]
      (let [single-arity? (fn [fn-forms] (boolean (some vector? fn-forms)))
            strip-gspec   (fn [body] (let [[args _gspec & more] body]
@@ -245,7 +257,8 @@
            :body any?)))
 
      (s/def ::spec-elem
-       (s/or :set set?
+       (s/or
+         :set set?
          :pred-sym (s/and symbol?
                      (complement #{'| '=>})
                      ;; REVIEW: should the `?` be a requirement?
@@ -303,7 +316,6 @@
                  (-> spec-args :args count (= argcount))
                  (= argcount 0)))))))
 
-
      (s/def ::defn
        (s/and seq?
          (s/cat :op #{'defn 'defn-}
@@ -312,150 +324,280 @@
            :meta (s/? map?)
            :bs (s/alt :arity-1 ::args+body
                  :arity-n (s/cat :bodies (s/+ (s/spec ::args+body))
-                            :attr (s/? map?))))))
+                            :attr (s/? map?))))))))
 
-     ;;;; Main code generating functions
+;;;; Main code generating functions
 
-     (defn- unscrew-vec-unform
-       "Half-arsed workaround for spec bugs CLJ-2003 and CLJ-2021."
-       [unformed-arg]
-       (if-not (sequential? unformed-arg)
-         unformed-arg
-         (let [malformed-seq-destructuring? (every-pred seq? (comp #{:as '&} first))
-               [unformed malformed] (split-with (complement malformed-seq-destructuring?) unformed-arg)]
-           (vec (concat unformed (apply concat malformed))))))
+#?(:clj
+   (defn- gspec->fspec*
+     [{:com.fulcrologic.guardrails.core/keys
+       [conformed-reg-args conformed-var-arg arg-syms clean-arg-vec]
+       :as processed-args}
+      conformed-gspec
+      {:com.fulcrologic.guardrails.core/keys
+       [anon-fspec? multi-arity-args? nilable? malli? external-consumption?]
+       :as opts}]
+     (let [{argspec-def              :args
+            retspec                  :ret
+            fn-such-that             :fn-such-that
+            {:keys [gen-fn] :as gen} :gen}
+           conformed-gspec]
+       ;; gnl: This functions as a graceful downgrade for some validation cases
+       ;; with clojure.spec where an anonymous or nested gspec for a function
+       ;; argument has neither specific enough types nor a generator.
+       (if (and anon-fspec?
+             argspec-def
+             (not gen)
+             (some #{'any? :any} (-> argspec-def :args vals)))
+         (if nilable?
+           (if malli? `[:maybe ifn?] `(s/nilable ifn?))
+           `ifn?)
+         (let [extract-spec
+               (fn extract-spec [[spec-type spec]]
+                 (if (= spec-type :gspec)
+                   (if (= (key spec) :nilable-gspec)
+                     (gspec->fspec*
+                       nil
+                       (-> spec val :gspec)
+                       {::anon-fspec? true
+                        ::nilable?    true
+                        ::malli?      malli?})
+                     (gspec->fspec*
+                       nil
+                       (val spec)
+                       {::anon-fspec? true
+                        ::malli?      malli?}))
+                   spec))
 
+               arg-binding-destruct
+               (if (empty? clean-arg-vec)
+                 (if malli? [] {})
+                 (if (every? (fn [[type _arg]] (= type :sym))
+                       (remove nil? (conj conformed-reg-args conformed-var-arg)))
+                   (if malli?
+                     arg-syms
+                     `{:keys ~arg-syms})
+                   (if malli?
+                     clean-arg-vec
+                     (->> (map (fn [destruct-binding arg-sym]
+                                 [destruct-binding (keyword arg-sym)])
+                            clean-arg-vec
+                            arg-syms)
+                       (into {})))))
 
-     (defn- gspec->fspec*
-       [conformed-arg-list conformed-gspec anon-fspec? multi-arity-args? nilable?]
-       (let [{argspec-def              :args
-              retspec                  :ret
-              fn-such-that             :fn-such-that
-              {:keys [gen-fn] :as gen} :gen}
-             conformed-gspec]
-         (if (and anon-fspec?
-               argspec-def
-               (not gen)
-               (some #{'any?} (-> argspec-def :args vals)))
-           (if nilable? `(s/nilable ifn?) `ifn?)
-           (let [extract-spec
-                 (fn extract-spec [[spec-type spec]]
-                   (if (= spec-type :gspec)
-                     (if (= (key spec) :nilable-gspec)
-                       (gspec->fspec* nil (-> spec val :gspec) true false true)
-                       (gspec->fspec* nil (val spec) true false false))
-                     spec))
+               process-arg-pred
+               (fn process-arg-pred [{:keys [name args body]}]
+                 (let [bindings (if-let [anon-arg (some-> args :args first second)]
+                                  (if malli?
+                                    (into arg-binding-destruct [:as anon-arg])
+                                    (assoc arg-binding-destruct :as anon-arg))
+                                  arg-binding-destruct)
+                       function (remove nil? `(fn ~name [~bindings] ~body))]
+                   (if malli?
+                     [:fn function]
+                     function)))
 
-                 named-conformed-args
-                 (when argspec-def
-                   (let [all-args     (remove nil? (concat (:args conformed-arg-list)
-                                                     [(-> conformed-arg-list :varargs :form)]))
-                         gen-arg-name (fn [index] (str "arg" (inc index)))
-                         gen-name     (fn [index [arg-type arg :as full-arg]]
-                                        (let [arg-name (if-not arg-type
-                                                         (gen-arg-name index)
-                                                         (case arg-type
-                                                           :sym arg
-                                                           :seq (or (-> arg :as :sym)
-                                                                  (gen-arg-name index))
-                                                           :map (or (-> arg :as)
-                                                                  (gen-arg-name index))))]
-                                          [(keyword arg-name) full-arg]))]
-                     (map-indexed gen-name (or (seq all-args)
-                                             (-> argspec-def :args count (repeat nil))))))
+               processed-args
+               (if-not argspec-def
+                 (if malli? `[:catn] `(s/cat))
+                 (let [wrapped-params (as-> argspec-def __
+                                        (:args __)
+                                        (map extract-spec __)
+                                        (if malli?
+                                          (if anon-fspec?
+                                            __
+                                            (map #(do [(keyword %1) %2]) arg-syms __))
+                                          (if anon-fspec?
+                                            (interleave
+                                              (map-indexed
+                                                (fn [index _]
+                                                  (keyword (format "arg%s" (str (inc index)))))
+                                                (repeat nil))
+                                              __)
+                                            (interleave (map keyword arg-syms) __)))
+                                        (if malli?
+                                          (if anon-fspec?
+                                            (vec (cons `:cat __))
+                                            (vec (cons `:catn __)))
+                                          (cons `s/cat __)))]
+                   (if-let [args-such-that (:args-such-that argspec-def)]
+                     (as-> args-such-that __
+                       (:preds __)
+                       (map process-arg-pred __)
+                       (if malli?
+                         ;; REVIEW: Malli doesn't seem to support arg
+                         ;; predicates in function schemas, so we just strip
+                         ;; them when outputting Malli schemas, but we do still
+                         ;; use them for Guardrails validation
+                         (if external-consumption?
+                           wrapped-params
+                           (vec (list* :and wrapped-params __)))
+                         (list* `s/and wrapped-params __)))
+                     wrapped-params)))
 
-                 arg-binding-map
-                 (if-not conformed-arg-list
-                   {}
-                   (if (every? #(= (-> % second key) :sym) named-conformed-args)
-                     `{:keys ~(vec (map #(-> % first name symbol) named-conformed-args))}
-                     (->> named-conformed-args
-                       (map (fn [[arg-key conformed-arg]]
-                              [(->> conformed-arg (s/unform ::binding-form) unscrew-vec-unform)
-                               arg-key]))
-                       (into {}))))
+               process-ret-pred
+               (fn process-ret-pred [{:keys [name args body]}]
+                 (let [anon-arg       (some-> args :args first second)
+                       ret-sym        (gensym "ret__")
+                       bindings       [{(if multi-arity-args?
+                                          ['_ arg-binding-destruct]
+                                          arg-binding-destruct) :args
+                                        ret-sym                 :ret}]
+                       processed-body (if anon-arg
+                                        (walk/postwalk-replace {anon-arg ret-sym} body)
+                                        body)]
+                   (remove nil? `(fn ~name ~bindings ~processed-body))))
 
-                 process-arg-pred
-                 (fn process-arg-pred [{:keys [name args body]}]
-                   (let [bindings (if-let [anon-arg (some-> args :args first second)]
-                                    (assoc arg-binding-map :as anon-arg)
-                                    arg-binding-map)]
-                     (remove nil? `(fn ~name [~bindings] ~body))))
+               processed-fn-preds
+               (when fn-such-that
+                 (map process-ret-pred (:preds fn-such-that)))
 
-                 processed-args
-                 (if-not argspec-def
-                   `(s/cat)
-                   (let [wrapped-params (->> argspec-def
-                                          :args
-                                          (map extract-spec)
-                                          (interleave (map first named-conformed-args))
-                                          (cons `s/cat))]
-                     (if-let [args-such-that (:args-such-that argspec-def)]
-                       (->> args-such-that
-                         :preds
-                         (map process-arg-pred)
-                         (list* `s/and wrapped-params))
-                       wrapped-params)))
+               retify-fn-pred
+               (fn [fn-pred]
+                 (let [[pred-head [[orig-pred-params] & pred-bodies]]
+                       (split-with (complement vector?) fn-pred)
 
-                 process-ret-pred
-                 (fn process-ret-pred [{:keys [name args body]}]
-                   (let [anon-arg       (some-> args :args first second)
-                         ret-sym        (gensym "ret__")
-                         bindings       [{(if multi-arity-args?
-                                            ['_ arg-binding-map]
-                                            arg-binding-map) :args
-                                          ret-sym            :ret}]
-                         processed-body (if anon-arg
-                                          (walk/postwalk-replace {anon-arg ret-sym} body)
-                                          body)]
-                     (remove nil? `(fn ~name ~bindings ~processed-body))))
+                       pred-params (-> orig-pred-params
+                                     set/map-invert
+                                     (assoc :args clean-arg-vec)
+                                     set/map-invert)
+                       ret-pred    `(~@pred-head [~pred-params]
+                                      ~@pred-bodies)]
+                   `(~@pred-head [ret#]
+                      (let [pred-args# {:args ~arg-syms :ret ret#}
+                            ret-pred#  ~ret-pred]
+                        (ret-pred# pred-args#)))))
 
-                 fn-spec
-                 (when fn-such-that
-                   (let [processed-ret-preds (map process-ret-pred (:preds fn-such-that))]
-                     (if (next processed-ret-preds)
-                       (cons `s/and processed-ret-preds)
-                       (first processed-ret-preds))))
+               ret+fn-preds
+               (when processed-fn-preds
+                 (cond->> (map retify-fn-pred processed-fn-preds)
+                   malli? (map #(do `[:fn ~%]))))
 
-                 final-fspec
-                 (concat (when anon-fspec? [`s/fspec])
-                   [:args processed-args]
-                   [:ret (extract-spec retspec)]
-                   (when fn-spec [:fn fn-spec])
-                   (when gen-fn [:gen gen-fn]))]
-             (if nilable? `(s/nilable ~final-fspec) final-fspec)))))
+               final-fspec
+               (if malli?
+                 (if (or external-consumption? anon-fspec?)
+                   (vec (concat
+                          [:function]
+                          [[:=> processed-args (extract-spec retspec)]]))
+                   (let [ret (extract-spec retspec)]
+                     {:args processed-args
+                      :ret  (if ret+fn-preds
+                              `[:and ~ret ~@ret+fn-preds]
+                              ret)}))
+                 (if (or external-consumption? anon-fspec?)
+                   (concat
+                     (when anon-fspec? [`s/fspec])
+                     [:args processed-args]
+                     [:ret (extract-spec retspec)]
+                     (when processed-fn-preds
+                       [:fn (if (next processed-fn-preds)
+                              (cons `s/and processed-fn-preds)
+                              (first processed-fn-preds))])
+                     (when gen-fn [:gen gen-fn]))
+                   (let [ret (extract-spec retspec)]
+                     {:args processed-args
+                      :ret  (if ret+fn-preds
+                              `(s/and ~ret ~@ret+fn-preds)
+                              ret)})))]
+           (if nilable?
+             (if malli?
+               `[:maybe ~final-fspec]
+               `(s/nilable ~final-fspec))
+             final-fspec))))))
 
+#?(:clj
+   (let [unscrew-vec-unform
+         (fn [unformed-arg]
+           ;; Half-arsed workaround for spec bugs CLJ-2003 and CLJ-2021.
+           (if-not (sequential? unformed-arg)
+             unformed-arg
+             (let [malformed-seq-destructuring? (every-pred seq? (comp #{:as '&} first))
+                   [unformed malformed] (split-with (complement malformed-seq-destructuring?) unformed-arg)]
+               (vec (concat unformed (apply concat malformed))))))
 
+         process-arg
+         (fn [index [arg-type arg]]
+           (let [arg-prefix (format "arg%s_" (str (if (int? index)
+                                                    (inc index)
+                                                    index)))]
+             (as-> arg arg
+               (case arg-type
+                 :sym [arg-type arg]
+                 :seq [arg-type (update arg :as #(or % {:as :as :sym (gensym arg-prefix)}))]
+                 :map [arg-type (update arg :as #(or % (gensym arg-prefix)))]))))]
+     (defn- process-args [{:keys [args] :as fn-tail}]
+       (let [conformed-reg-args (vec (->> args :args (map-indexed process-arg)))
+             arg->sym           #(let [f (into {} [%])]
+                                   (or
+                                     (:sym f)
+                                     (some-> f :seq :as :sym)
+                                     (some-> f :map :as)))
+             reg-arg-names      (mapv arg->sym conformed-reg-args)
+             conformed-var-arg  (some->> args :varargs :form (process-arg "v"))
+             arg-syms           (if conformed-var-arg
+                                  (conj reg-arg-names (arg->sym conformed-var-arg))
+                                  reg-arg-names)
+             unform-arg         #(->> % (s/unform ::binding-form) unscrew-vec-unform)
+             clean-arg-vec      (vec (concat
+                                       (map unform-arg conformed-reg-args)
+                                       (when conformed-var-arg [(unform-arg conformed-var-arg)])))
+             raw-arg-vec        (if-not conformed-var-arg
+                                  clean-arg-vec
+                                  (vec (concat
+                                         (pop clean-arg-vec)
+                                         ['&]
+                                         [(peek clean-arg-vec)])))]
+         {::conformed-reg-args conformed-reg-args
+          ::conformed-var-arg  conformed-var-arg
+          ::arg-syms           arg-syms
+          ::raw-arg-vec        raw-arg-vec
+          ;; Includes the variadic arg like raw but without the `&`
+          ::clean-arg-vec      clean-arg-vec}))))
 
-     ;; TODO make sure we check whether the variadic bodies are legit
-     ;; Can not have more than one
-     ;; Can not have one with more regular args than the variadic one
-     ;; To what extent does the compiler already check this?
-     (let [get-fspecs    (fn [fn-body]
-                           (let [[param-count variadic] (-> fn-body :args count-args)
-                                 gspec (or (:gspec fn-body)
-                                         (s/conform ::gspec
-                                           (vec (concat (repeat param-count 'any?)
-                                                  (when (> variadic 0)
-                                                    `[(s/* any?)])
-                                                  '[=> any?]))))]
-                             [(->> (if (> variadic 0) "n" param-count)
-                                (str "arity-")
-                                keyword)
-                              (gspec->fspec* (:args fn-body) gspec false true false)]))
-           get-spec-part (fn [part spec]
-                           (->> spec
-                             (drop-while (complement #{part}))
-                             second))]
-       (defn- generate-fspec-body [fn-bodies]
-         (case (key fn-bodies)
-           :arity-1
-           (when-let [gspec (-> fn-bodies val :gspec)]
-             (gspec->fspec* (-> fn-bodies val :args) gspec false false false))
-
-           :arity-n
-           (when (some :gspec (val fn-bodies))
-             (let [fspecs           (map get-fspecs (val fn-bodies))
+#?(:clj
+   ;; TODO make sure we check whether the variadic bodies are legit
+   ;; Can not have more than one
+   ;; Can not have one with more regular args than the variadic one
+   ;; To what extent does the compiler already check this?
+   (let [get-fspecs    (fn [malli? fn-tail]
+                         (let [[param-count variadic] (-> fn-tail :args count-args)
+                               gspec (or (:gspec fn-tail)
+                                       (s/conform ::gspec
+                                         (vec (concat (repeat param-count 'any?)
+                                                (when (> variadic 0)
+                                                  (if malli?
+                                                    `[[:* any?]]
+                                                    `[(s/* any?)]))
+                                                '[=> any?]))))]
+                           [(->> (if (> variadic 0) "n" param-count)
+                              (str "arity-")
+                              keyword)
+                            (gspec->fspec*
+                              (process-args fn-tail)
+                              gspec
+                              {::multi-arity-args?     true
+                               ::malli?                malli?
+                               ::external-consumption? true})]))
+         get-spec-part (fn [part spec]
+                         (->> spec
+                           (drop-while (complement #{part}))
+                           second))]
+     (defn- generate-external-fspec
+       [conformed-fn-tail-or-tails malli?]
+       (case (key conformed-fn-tail-or-tails)
+         :arity-1
+         (when-let [gspec (-> conformed-fn-tail-or-tails val :gspec)]
+           (gspec->fspec*
+             (process-args (val conformed-fn-tail-or-tails))
+             gspec
+             {::malli?                malli?
+              ::external-consumption? true}))
+         :arity-n
+         (when (some :gspec (val conformed-fn-tail-or-tails))
+           (if malli?
+             (let [fspecs (map (partial get-fspecs true) (val conformed-fn-tail-or-tails))]
+               (mapcat second fspecs))
+             (let [fspecs           (map (partial get-fspecs false) (val conformed-fn-tail-or-tails))
                    arg-specs        (mapcat (fn [[arity spec]]
                                               [arity (or (get-spec-part :args spec) `empty?)])
                                       fspecs)
@@ -496,344 +638,362 @@
                           (if multi-ret-clause
                             `(s/and ~multi-ret-clause ~multi-fn-clause)
                             multi-fn-clause)
-                          multi-ret-clause)])))))))
+                          multi-ret-clause)])))))))))
 
-     (def ^:private spec-op->type
-       (let [map-prot     "cljs.core.IMap"
-             coll-prot    "cljs.core.ICollection"
-             ;; Needed because Closure compiler/JS doesn't consider strings seqable
-             seqable-prot "(cljs.core.ISeqable|string)"]
-         {'number?      "number"
-          'integer?     "number"
-          'int?         "number"
-          'nat-int?     "number"
-          'pos-int?     "number"
-          'neg-int?     "number"
-          'float?       "number"
-          'double?      "number"
-          'int-in       "number"
-          'double-in    "number"
+#?(:clj
+   (def ^:private spec-op->type
+     (let [map-prot     "cljs.core.IMap"
+           coll-prot    "cljs.core.ICollection"
+           ;; Needed because Closure compiler/JS doesn't consider strings seqable
+           seqable-prot "(cljs.core.ISeqable|string)"]
+       {'number?      "number"
+        'integer?     "number"
+        'int?         "number"
+        'nat-int?     "number"
+        'pos-int?     "number"
+        'neg-int?     "number"
+        'float?       "number"
+        'double?      "number"
+        'int-in       "number"
+        'double-in    "number"
 
-          'string?      "string"
+        'string?      "string"
 
-          'boolean?     "boolean"
+        'boolean?     "boolean"
 
-          'keys         map-prot
-          'map-of       map-prot
-          'map?         map-prot
-          'merge        map-prot
+        'keys         map-prot
+        'map-of       map-prot
+        'map?         map-prot
+        'merge        map-prot
 
-          'set?         "cljs.core.ISet"
-          'vector?      "cljs.core.IVector"
-          'tuple        "cljs.core.IVector"
-          'seq?         "cljs.core.ISeq"
-          'seqable?     seqable-prot
-          'associative? "cljs.core.IAssociative"
-          'atom?        "cljs.core.IAtom"
+        'set?         "cljs.core.ISet"
+        'vector?      "cljs.core.IVector"
+        'tuple        "cljs.core.IVector"
+        'seq?         "cljs.core.ISeq"
+        'seqable?     seqable-prot
+        'associative? "cljs.core.IAssociative"
+        'atom?        "cljs.core.IAtom"
 
-          'coll-of      coll-prot
-          'every        coll-prot
+        'coll-of      coll-prot
+        'every        coll-prot
 
-          'keyword?     "cljs.core.Keyword"
-          'ifn?         "cljs.core.IFn"
-          'fn?          "Function"}))
+        'keyword?     "cljs.core.Keyword"
+        'ifn?         "cljs.core.IFn"
+        'fn?          "Function"})))
 
-     (declare get-gspec-type)
+#?(:clj
+   (declare get-gspec-type))
 
-     (defn- get-type [recursive-call conformed-spec-elem]
-       (let [[spec-type spec-def] conformed-spec-elem
-             spec-op
-             ;; REVIEW: This kinda wants to be a multi-method when it grows up.
-             (case spec-type
-               :list (let [op (-> spec-def first name symbol)]
-                       (cond
-                         (#{'nilable '?} op) (concat (->> spec-def
-                                                       second
-                                                       (s/conform ::spec-elem)
-                                                       (get-type true))
-                                               [::nilable])
-                         (#{'* '+} op) (concat (->> spec-def
-                                                 second
-                                                 (s/conform ::spec-elem)
-                                                 (get-type true))
-                                         [::variadic])
-                         (#{'and} op) [(-> spec-def second)] ; TODO
-                         (#{'coll-of 'every} op) [(or (->> spec-def
-                                                        (drop-while (complement #{:kind}))
-                                                        second)
-                                                    op)]
-                         :else [op]))
-               ;;TODO support (some-fn and (s/or
-               :gspec (let [gspec-def (val spec-def)]
-                        (if (= (key spec-def) :nilable-gspec)
-                          [(get-gspec-type (:gspec gspec-def)) ::nilable]
-                          [(get-gspec-type gspec-def)]))
-               :pred-sym [spec-def]
-               [nil])]
-         (if recursive-call
+#?(:clj
+   (defn- get-type [recursive-call conformed-spec-elem]
+     (let [[spec-type spec-def] conformed-spec-elem
            spec-op
-           (if-let [js-type (spec-op->type (first spec-op))]
-             (let [modifiers (set (rest spec-op))]
-               (as-> js-type t
-                 (str (if (::nilable modifiers) "?" "!") t)
-                 (str (when (::variadic modifiers) "...") t)))
-             "*"))))
+           ;; REVIEW: This kinda wants to be a multi-method when it grows up.
+           (case spec-type
+             :list (let [op (-> spec-def first name symbol)]
+                     (cond
+                       (#{'nilable '?} op) (concat (->> spec-def
+                                                     second
+                                                     (s/conform ::spec-elem)
+                                                     (get-type true))
+                                             [::nilable])
+                       (#{'* '+} op) (concat (->> spec-def
+                                               second
+                                               (s/conform ::spec-elem)
+                                               (get-type true))
+                                       [::variadic])
+                       (#{'and} op) [(-> spec-def second)]  ; TODO
+                       (#{'coll-of 'every} op) [(or (->> spec-def
+                                                      (drop-while (complement #{:kind}))
+                                                      second)
+                                                  op)]
+                       :else [op]))
+             ;;TODO support (some-fn and (s/or
+             :gspec (let [gspec-def (val spec-def)]
+                      (if (= (key spec-def) :nilable-gspec)
+                        [(get-gspec-type (:gspec gspec-def)) ::nilable]
+                        [(get-gspec-type gspec-def)]))
+             :pred-sym [spec-def]
+             [nil])]
+       (if recursive-call
+         spec-op
+         (if-let [js-type (spec-op->type (first spec-op))]
+           (let [modifiers (set (rest spec-op))]
+             (as-> js-type t
+               (str (if (::nilable modifiers) "?" "!") t)
+               (str (when (::variadic modifiers) "...") t)))
+           "*")))))
 
+#?(:clj
+   (defn- get-gspec-type [conformed-gspec]
+     (let [argspec-def (:args conformed-gspec)
+           args-jstype (if-not argspec-def
+                         ""
+                         (->> (-> conformed-gspec :args :args)
+                           (map (partial get-type false))
+                           (string/join ", ")))
+           ret-jstype  (get-type false (:ret conformed-gspec))]
+       (str "function(" args-jstype "): " ret-jstype))))
 
-     (defn- get-gspec-type [conformed-gspec]
-       (let [argspec-def (:args conformed-gspec)
-             args-jstype (if-not argspec-def
-                           ""
-                           (->> (-> conformed-gspec :args :args)
-                             (map (partial get-type false))
-                             (string/join ", ")))
-             ret-jstype  (get-type false (:ret conformed-gspec))]
-         (str "function(" args-jstype "): " ret-jstype)))
+#?(:clj
+   (defn- generate-type-annotations [env conformed-bs]
+     (when (cljs-env? env)
+       (case (key conformed-bs)
+         :arity-1 (when-let [gspec (-> conformed-bs val :gspec)]
+                    {:jsdoc [(str "@type {" (get-gspec-type gspec) "}")]})
+         ;; REVIEW: There doesn't seem to be a way to get valid annotations for args of
+         ;; multi-arity functions and attempts to just annotate the return value(s) failed
+         ;; as well. It wasn't possible to put together an annotation which was both
+         ;; considered valid and resulted in a successful type check.
+         :arity-n nil #_(when-let [ret-types (as-> (val conformed-bs) x
+                                               (map #(get-type false (-> % :gspec :ret)) x)
+                                               (distinct x)
+                                               (when (not-any? #{"*" "?"} x) x))]
+                          {:jsdoc [(str "@return {" (string/join "|" ret-types) "}")]})))))
 
-     (defn- generate-type-annotations [env conformed-bs]
-       (when (cljs-env? env)
-         (case (key conformed-bs)
-           :arity-1 (when-let [gspec (-> conformed-bs val :gspec)]
-                      {:jsdoc [(str "@type {" (get-gspec-type gspec) "}")]})
-           ;; REVIEW: There doesn't seem to be a way to get valid annotations for args of
-           ;; multi-arity functions and attempts to just annotate the return value(s) failed
-           ;; as well. It wasn't possible to put together an annotation which was both
-           ;; considered valid and resulted in a successful type check.
-           :arity-n nil #_(when-let [ret-types (as-> (val conformed-bs) x
-                                                 (map #(get-type false (-> % :gspec :ret)) x)
-                                                 (distinct x)
-                                                 (when (not-any? #{"*" "?"} x) x))]
-                            {:jsdoc [(str "@return {" (string/join "|" ret-types) "}")]}))))
-
-     (defn- generate-fdef
-       [env forms]
-       (let [{[type fn-name] :name bs :bs} (s/conform ::>fdef-args forms)]
+#?(:clj
+   (defn generate-fdef
+     [env forms]
+     (let [{[type fn-name] :name bs :bs} (s/conform ::>fdef-args forms)]
+       (if (:malli? env)
+         (when (= type :sym)
+           `(malli.core/=> ~fn-name [~@(generate-external-fspec bs true)]))
          (case type
-           :sym (let [fdef `(s/fdef ~fn-name ~@(generate-fspec-body bs))]
-                  fdef)
-           :key `(s/def ~fn-name (s/fspec ~@(generate-fspec-body bs))))))))
+           :sym `(s/fdef ~fn-name ~@(generate-external-fspec bs false))
+           :key `(s/def ~fn-name (s/fspec ~@(generate-external-fspec bs false))))))))
 
 (defn callsite-exception []
   #?(:cljs (js/Error. "")
      :clj  (AssertionError. "")))
 
 #?(:clj
-   (do
-     (defn- process-defn-body
-       [cfg fspec args+gspec+body]
-       (let [{:keys            [env fn-name]
-              {:keys [throw? tap>?]} :config} cfg
-             {:keys [async-checks?]} env
-             {:keys [args body]} args+gspec+body
-             cljs?         (cljs-env? env)
-             [prepost orig-body-forms] (case (key body)
-                                         :prepost+body [(-> body val :prepost)
-                                                        (-> body val :body)]
-                                         :body [nil (val body)])
-             process-arg   (fn [[arg-type arg]]
-                             (as-> arg arg
-                               (case arg-type
-                                 :sym [arg-type arg]
-                                 :seq [arg-type (update arg :as #(or % {:as :as :sym (gensym "arg_")}))]
-                                 :map [arg-type (update arg :as #(or % (gensym "arg_")))])))
-             ;; NOTE: usage of extract-arg isn't elegant, there's duplication, refactor
-             extract-arg   (fn [[arg-type arg]]
-                             (case arg-type
-                               :sym arg
-                               :seq (get-in arg [:as :sym])
-                               :map (:as arg)
-                               nil))
-             {:keys [file line]} (if cljs?
-                                   (meta fn-name)
-                                   {:file #?(:clj *file* :cljs "N/A")
-                                    :line (some-> env :form meta :line)})
-             unform-arg    #(->> % (s/unform ::binding-form) unscrew-vec-unform)
-             reg-args      (->> args :args (mapv process-arg))
-             arg->sym      #(let [f (into {} [%])]
-                              (or
-                                (:sym f)
-                                (some-> f :seq :as :sym)
-                                (some-> f :map :as)))
-             reg-arg-names (mapv arg->sym reg-args)
-             var-arg       (some-> args :varargs :form process-arg)
-             arg-list      (vec (concat (map unform-arg reg-args)
-                                  (when var-arg ['& (unform-arg var-arg)])))
-             sym-arg-list  (if var-arg
-                             (conj reg-arg-names (arg->sym var-arg))
-                             reg-arg-names)
-             body-forms    orig-body-forms
-             where         (str file ":" line " " fn-name "'s")
-             argspec       (gensym "argspec")
-             opts          {:fn-name      where
-                            :tap>?        tap>?
-                            :throw?       throw?
-                            :vararg?      (boolean var-arg)
-                            :expound-opts (get (gr.cfg/get-env-config) :expound {})}
-             gosym         (if cljs? 'cljs.core.async/go 'clojure.core.async/go)
-             putsym        (if cljs? 'cljs.core.async/>! 'clojure.core.async/>!)
-             args-check    (if async-checks?
-                             `(let [e# (callsite-exception)]
-                                (~gosym
-                                  (~putsym pending-check-channel (fn [] (when ~argspec (run-check (assoc
-                                                                                                    ~(assoc opts :args? true)
-                                                                                                    :callsite e#)
-                                                                                         ~argspec ~sym-arg-list))))))
-                             `(when ~argspec (run-check ~(assoc opts :args? true) ~argspec ~sym-arg-list)))
-             retspec       (gensym "retspec")
-             ret           (gensym "ret")
-             ret-check     (if async-checks?
-                             `(let [e# (callsite-exception)]
-                                (~gosym
-                                  (~putsym pending-check-channel (fn [] (when ~retspec (run-check (assoc
-                                                                                                    ~(assoc opts :args? false)
-                                                                                                    :callsite e#) ~retspec ~ret))))))
-                             `(when ~retspec (run-check ~(assoc opts :args? false) ~retspec ~ret)))
-             real-function `(fn ~arg-list ~@body-forms)
-             f             (gensym "f")
-             call          (if (boolean var-arg)
-                             `(cond
-                                (map? ~(last sym-arg-list)) (apply ~f ~@(butlast sym-arg-list) (apply concat (last ~sym-arg-list)))
-                                (seq ~(last sym-arg-list)) (apply ~f ~@sym-arg-list)
-                                :else (~f ~@(butlast sym-arg-list)))
-                             `(~f ~@sym-arg-list))]
-         `(~@(remove nil? [arg-list prepost])
-            (let [{~argspec :args ~retspec :ret} ~fspec]
-              ~args-check
-              (let [~f ~real-function
-                    ~ret ~call]
-                ~ret-check
-                ~ret)))))
+   (defn- process-defn-body
+     [cfg fn-tail]
+     (let [{:keys                  [env fn-name]
+            {:keys [throw? tap>?]} :config} cfg
+           {:keys [async-checks? malli?]} env
+           cljs?         (cljs-env? env)
 
-     (defn- generate-defn
-       [forms private env]
-       (let [conformed-gdefn   (s/conform ::>defn-args forms)
-             fn-bodies         (:bs conformed-gdefn)
-             arity             (key fn-bodies)
-             fn-name           (:name conformed-gdefn)
-             docstring         (:docstring conformed-gdefn)
-             meta-map          (merge (:meta conformed-gdefn)
-                                 (generate-type-annotations env fn-bodies)
+           {:com.fulcrologic.guardrails.core/keys
+            [conformed-var-arg arg-syms raw-arg-vec]
+            :as processed-params}
+           (process-args fn-tail)
+
+           {:keys [body args gspec]} fn-tail
+           fspec         (when gspec
+                           (gspec->fspec* processed-params gspec {::malli? malli?}))
+           [prepost orig-body-forms] (case (key body)
+                                       :prepost+body [(-> body val :prepost)
+                                                      (-> body val :body)]
+                                       :body [nil (val body)])
+           {:keys [file line]} (if cljs?
+                                 (meta fn-name)
+                                 {:file #?(:clj *file* :cljs "N/A")
+                                  :line (some-> env :form meta :line)})
+           body-forms    orig-body-forms
+           where         (str file ":" line " " fn-name "'s")
+           argspec       (gensym "argspec")
+           expound-opts  (get (gr.cfg/get-env-config) :expound {})
+           malli-opts    (get (gr.cfg/get-env-config) :malli {})
+           opts          {:fn-name      where
+                          :malli?       malli?
+                          :tap>?        tap>?
+                          :throw?       throw?
+                          :vararg?      (boolean conformed-var-arg)
+                          :expound-opts expound-opts
+                          :validate-fn  (if malli? 'malli.core/validate `s/valid?)
+                          :explain-fn   (if malli?
+                                          `(fn [schema# value#]
+                                             (malli.core/explain
+                                               schema#
+                                               value#
+                                               ~malli-opts))
+                                          `s/explain-data)
+                          :humanize-fn  (if malli?
+                                          `(partial
+                                             com.fulcrologic.guardrails.malli.core/humanize-schema
+                                             ~malli-opts)
+                                          `(partial humanize-spec ~expound-opts))}
+           gosym         (if cljs? 'cljs.core.async/go 'clojure.core.async/go)
+           putsym        (if cljs? 'cljs.core.async/>! 'clojure.core.async/>!)
+           args-check    (if async-checks?
+                           `(let [e# (callsite-exception)]
+                              (~gosym
+                                (~putsym pending-check-channel (fn [] (when ~argspec (run-check (assoc
+                                                                                                  ~(assoc opts :args? true)
+                                                                                                  :callsite e#)
+                                                                                       ~argspec
+                                                                                       ~arg-syms))))))
+                           `(when ~argspec (run-check ~(assoc opts :args? true) ~argspec ~arg-syms)))
+           retspec       (gensym "retspec")
+           ret           (gensym "ret")
+           ret-check     (if async-checks?
+                           `(let [e# (callsite-exception)]
+                              (~gosym
+                                (~putsym pending-check-channel (fn [] (when ~retspec (run-check (assoc
+                                                                                                  ~(assoc opts :args? false)
+                                                                                                  :callsite e#)
+                                                                                       ~retspec
+                                                                                       ~ret))))))
+                           `(when ~retspec (run-check ~(assoc opts :args? false) ~retspec ~ret)))
+           real-function `(fn ~raw-arg-vec ~@body-forms)
+           f             (gensym "f")
+           call          (if (boolean conformed-var-arg)
+                           `(cond
+                              (map? ~(last arg-syms)) (apply ~f ~@(butlast arg-syms) (apply concat (last ~arg-syms)))
+                              (seq ~(last arg-syms)) (apply ~f ~@arg-syms)
+                              :else (~f ~@(butlast arg-syms)))
+                           `(~f ~@arg-syms))]
+       `(~@(remove nil? [raw-arg-vec prepost])
+          (let [{~argspec :args ~retspec :ret} ~fspec]
+            ~args-check
+            (let [~f ~real-function
+                  ~ret ~call]
+              ~ret-check
+              ~ret))))))
+
+#?(:clj
+   (defn- generate-defn
+     [forms private env]
+     (let [conformed-gdefn     (s/conform ::>defn-args forms)
+           conformed-fn-tails  (:bs conformed-gdefn)
+           arity               (key conformed-fn-tails)
+           fn-name             (:name conformed-gdefn)
+           docstring           (:docstring conformed-gdefn)
+           malli?              (:malli? env)
+           raw-meta-map        (merge
+                                 (:meta conformed-gdefn)
                                  {::guardrails true})
-             ;;; Assemble the config
-             {:keys [defn-macro] :as config} (gr.cfg/merge-config env (meta fn-name) meta-map)
-             defn-sym          (cond defn-macro (with-meta (symbol defn-macro) {:private private})
-                                     private 'defn-
-                                     :else 'defn)
-             ;;; Code generation
-             fdef-body         (generate-fspec-body fn-bodies)
-             fdef              (when fdef-body `(s/fdef ~fn-name ~@fdef-body))
-             individual-arity-fspecs
-                               (map (fn [{:keys [args gspec]}]
-                                      (when gspec
-                                        (gspec->fspec* args gspec true false false)))
-                                 (val fn-bodies))
+           ;;; Assemble the config
+           {:keys [defn-macro] :as config} (gr.cfg/merge-config env (meta fn-name) raw-meta-map)
+           defn-sym            (cond defn-macro (with-meta (symbol defn-macro) {:private private})
+                                 private 'defn-
+                                 :else 'defn)
+           ;;; Code generation
+           external-fdef-body  (generate-external-fspec conformed-fn-tails malli?)
+           fdef                (when external-fdef-body
+                                 (if malli?
+                                   ;; REVIEW: Since we're already adding the
+                                   ;; Malli function schema to the metadata
+                                   ;; below, there's probably no need to define
+                                   ;; it here as well.
+                                   nil #_`(malli.core/=> ~fn-name [~@external-fdef-body])
+                                   `(s/fdef ~fn-name ~@external-fdef-body)))
+           meta-map            (merge
+                                 raw-meta-map
+                                 (when malli? {:malli/schema `[~@external-fdef-body]})
+                                 (when-not malli? (generate-type-annotations env conformed-fn-tails)))
+           processed-fn-bodies (let [process-cfg      {:env     env
+                                                       :config  config
+                                                       :fn-name fn-name}
+                                     fn-tail-or-tails (val conformed-fn-tails)]
+                                 (case arity
+                                   :arity-1 (process-defn-body process-cfg fn-tail-or-tails)
+                                   :arity-n (map (partial process-defn-body process-cfg) fn-tail-or-tails)))
+           main-defn           `(~@(remove nil? [defn-sym fn-name docstring meta-map])
+                                  ~@processed-fn-bodies)]
+       `(do ~@(remove nil? [fdef `(declare ~fn-name) main-defn])))))
 
-             process-fn-bodies (fn []
-                                 (let [process-cfg {:env     env
-                                                    :config  config
-                                                    :fn-name fn-name}]
-                                   (case arity
-                                     :arity-1 (->> fn-bodies val (process-defn-body process-cfg `(s/fspec ~@fdef-body)))
-                                     :arity-n (map (partial process-defn-body process-cfg)
-                                                individual-arity-fspecs
-                                                (val fn-bodies)))))
-             main-defn         `(~@(remove nil? [defn-sym fn-name docstring meta-map])
-                                  ~@(process-fn-bodies))]
-         `(do ~fdef (declare ~fn-name) ~main-defn)))
+#?(:clj
+   ;;;; Main macros and public API
+   (s/def ::>defn-args
+     (s/and seq?                                            ; REVIEW
+       (s/cat :name simple-symbol?
+         :docstring (s/? string?)
+         :meta (s/? map?)
+         :bs (s/alt :arity-1 ::args+gspec+body
+               ;; TODO: add tail-attr-map support after this
+               :arity-n (s/+ (s/and seq? ::args+gspec+body)))))))
 
-     ;;;; Main macros and public API
+#?(:clj
+   (defn >defn* [env form body {:keys [private? malli?] :as opts}]
+     (let [cfg    (gr.cfg/get-env-config)
+           mode   (gr.cfg/mode cfg)
+           async? (gr.cfg/async? cfg)]
+       (cond
+         (not cfg) (clean-defn 'defn body)
+         (#{:copilot :pro} mode) `(do (defn ~@body)
+                                    ~(gr.pro/>defn-impl env body opts))
+         (#{:runtime :all} mode)
+         (cond-> (remove nil? (generate-defn body private? (assoc env :form form :async-checks? async? :malli? malli?)))
+           (cljs-env? env) clj->cljs
+           (= :all mode) (-> vec (conj (gr.pro/>defn-impl env body opts)) seq))))))
 
-     (s/def ::>defn-args
-       (s/and seq?                                          ; REVIEW
-         (s/cat :name simple-symbol?
-           :docstring (s/? string?)
-           :meta (s/? map?)
-           :bs (s/alt :arity-1 ::args+gspec+body
-                 ;; TODO: add tail-attr-map support after this
-                 :arity-n (s/+ (s/and seq? ::args+gspec+body))))))
+#?(:clj
+   (defmacro >defn
+     "Like defn, but requires a (nilable) gspec definition and generates
+     additional `s/fdef` function spec definition and validation code."
+     {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
+                  [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
+     [& forms]
+     (>defn* &env &form forms {:private? false})))
 
-     (defn >defn* [env form body {:keys [private?] :as opts}]
-       (let [cfg    (gr.cfg/get-env-config)
-             mode   (gr.cfg/mode cfg)
-             async? (gr.cfg/async? cfg)]
-         (cond
-           (not cfg) (clean-defn 'defn body)
-           (#{:copilot :pro} mode) `(do (defn ~@body)
-                                        ~(gr.pro/>defn-impl env body opts))
-           (#{:runtime :all} mode)
-           (cond-> (remove nil? (generate-defn body private? (assoc env :form form :async-checks? async?)))
-             (cljs-env? env) clj->cljs
-             (= :all mode) (-> vec (conj (gr.pro/>defn-impl env body opts)) seq)))))
+#?(:clj
+   (s/fdef >defn :args ::>defn-args))
 
-     (defmacro >defn
-       "Like defn, but requires a (nilable) gspec definition and generates
-       additional `s/fdef`, generative tests, instrumentation code, an
-       fspec-based stub, and/or tracing code, depending on the configuration
-       metadata and the existence of a valid gspec and non-nil body."
-       {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
-                    [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
-       [& forms]
-       (>defn* &env &form forms {:private? false}))
+#?(:clj
+   (defmacro >defn-
+     "Like defn-, but requires a (nilable) gspec definition and generates
+     additional `s/fdef` function spec definition and validation code."
+     {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
+                  [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
+     [& forms]
+     (>defn* &env &form forms {:private? true})))
 
-     (s/fdef >defn :args ::>defn-args)
+(comment
+  (>defn- test-function [] [=> nil?] nil)
+  (clojure.pprint/pprint (meta #'test-function))
+  (assert (true? (:private (meta #'test-function))))
 
-     (defmacro >defn-
-       "Like defn-, but requires a (nilable) gspec definition and generates
-       additional `s/fdef`, generative tests, instrumentation code, an
-       fspec-based stub, and/or tracing code, depending on the configuration
-       metadata and the existence of a valid gspec and non-nil body."
-       {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
-                    [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
-       [& forms]
-       (>defn* &env &form forms {:private? true}))
+  (>defn test-function2 [] [=> nil?] nil)
+  (assert (nil? (:private (meta #'test-function2)))),)
 
-     (comment
-       (>defn- test-function [] [=> nil?] nil)
-       (clojure.pprint/pprint (meta #'test-function))
-       (assert (true? (:private (meta #'test-function))))
+#?(:clj
+   (s/fdef >defn- :args ::>defn-args))
 
-       (>defn test-function2 [] [=> nil?] nil)
-       (assert (nil? (:private (meta #'test-function2))))
+#?(:clj
+   (defmacro >def
+     "Just like Clojure s/def, except there is a stub for this in the `noop`
+     namespace, which you can substitute via CLJS build parameters, turning it
+     into code that can be dead-code eliminated in a CLJS production build. See
+     the docstring for the `com.fulcrologic.guardrails.noop` namespace."
+     ([k spec-form]
+      (cond-> `(s/def ~k ~spec-form)
+        (cljs-env? &env) clj->cljs))
+     ([k _doc spec-form]
+      `(>def ~k ~spec-form))))
 
-       ,)
+#?(:clj
+   (s/def ::>fdef-args
+     (s/and seq?                                            ;REVIEW
+       (s/cat :name (s/or :sym symbol? :key qualified-keyword?)
+         :bs (s/alt :arity-1 ::args+gspec+body
+               :arity-n (s/+ (s/and seq? ::args+gspec+body)))))))
 
-     (s/fdef >defn- :args ::>defn-args)
+#?(:clj
+   (defmacro >fdef
+     "Defines an fspec using gspec syntax – pretty much a `>defn` without the body.
 
-     (defmacro >def
-       "Just like Clojure s/def, except there is a stub for this in the `noop` namespace, which you can substitute via
-        CLJS build parameters, turning it into code that can be dead-code eliminated in a CLJS production build. See the
-        docstring for the `com.fulcrologic.guardrails.noop` namespace."
-       ([k spec-form]
-        (cond-> `(s/def ~k ~spec-form)
-          (cljs-env? &env) clj->cljs))
-       ([k _doc spec-form]
-        `(>def ~k ~spec-form)))
+     `name` can be a symbol or a qualified keyword, depending on whether the
+     fspec is meant to be registered as a top-level fspec (=> s/fdef fn-sym ..)
+     or used in other specs (=> s/def ::spec-keyword (s/fspec ...)). "
+     {:arglists '([name [params*] gspec]
+                  [name ([params*] gspec) +])}
+     [& forms]
+     (when-let [cfg (gr.cfg/get-env-config)]
+       `(do
+          ~(when (#{:pro :copilot :all} (gr.cfg/mode cfg))
+             (gr.pro/>fdef-impl &env forms))
+          ~(cond-> (remove nil? (generate-fdef &env forms))
+             (cljs-env? &env) clj->cljs)))))
 
-     (s/def ::>fdef-args
-       (s/and seq?                                          ;REVIEW
-         (s/cat :name (s/or :sym symbol? :key qualified-keyword?)
-           :bs (s/alt :arity-1 ::args+gspec+body
-                 :arity-n (s/+ (s/and seq? ::args+gspec+body))))))
+#?(:clj
+   (s/fdef >fdef :args ::>fdef-args))
 
-     (defmacro >fdef
-       "Defines an fspec using gspec syntax – pretty much a `>defn` without the body.
+#?(:clj
+   ;; TODO: clean >fn (no gspec)
+   (defmacro >fn [& forms] `(fn ~@forms)))
 
-       `name` can be a symbol or a qualified keyword, depending on whether the
-       fspec is meant to be registered as a top-level fspec (=> s/fdef fn-sym
-       ...) or used in other specs (=> s/def ::spec-keyword (s/fspec ...)). "
-       {:arglists '([name [params*] gspec]
-                    [name ([params*] gspec) +])}
-       [& forms]
-       (when-let [cfg (gr.cfg/get-env-config)]
-         `(do ~(when (#{:pro :copilot :all} (gr.cfg/mode cfg))
-                 (gr.pro/>fdef-impl &env forms))
-              ~(cond-> (remove nil? (generate-fdef &env forms))
-                 (cljs-env? &env) clj->cljs))))
-
-     (s/fdef >fdef :args ::>fdef-args)
-
-     ;; TODO: clean >fn (no gspec)
-     (defmacro >fn [& forms] `(fn ~@forms))
-
-     (defmacro >fspec [& forms]
-       (gr.pro/>fspec-impl &env forms))))
+#?(:clj
+   (defmacro >fspec [& forms]
+     (gr.pro/>fspec-impl &env forms)))
