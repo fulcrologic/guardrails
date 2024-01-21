@@ -13,12 +13,13 @@
 (ns com.fulcrologic.guardrails.core
   #?(:cljs (:require-macros com.fulcrologic.guardrails.core))
   (:require
-    #?@(:clj [[clojure.set :as set]
-              [clojure.walk :as walk]
-              [com.fulcrologic.guardrails.config :as gr.cfg]
-              [com.fulcrologic.guardrails.impl.pro :as gr.pro]
-              [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs strip-colors]]])
-    #?@(:cljs [[com.fulcrologic.guardrails.impl.externs]])
+    #?@(:clj  [[clojure.set :as set]
+               [clojure.walk :as walk]
+               [com.fulcrologic.guardrails.config :as gr.cfg]
+               [com.fulcrologic.guardrails.impl.pro :as gr.pro]
+               [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs]]]
+        :cljs [[com.fulcrologic.guardrails.impl.externs]])
+    [com.fulcrologic.guardrails.utils :refer [strip-colors]]
     [clojure.core.async :as async]
     [clojure.spec.alpha :as s]
     [clojure.string :as string]
@@ -54,9 +55,9 @@
       See `enter-global-context!`."
      [ctx & body]
      `(do (enter-global-context! ~ctx)
-        (try ~@body
-          (finally
-            (leave-global-context! ~ctx))))))
+          (try ~@body
+               (finally
+                 (leave-global-context! ~ctx))))))
 
 (defn- get-global-context [] (first @global-context))
 
@@ -88,12 +89,12 @@
 
 (def tap (resolve 'tap>))
 
-(defn humanize-spec [expound-opts explain-data]
+(defn humanize-spec [explain-data {:guardrails/keys [expound-options]}]
   (with-out-str
-    ((exp/custom-printer expound-opts) explain-data)))
+    ((exp/custom-printer expound-options) explain-data)))
 
-(defn run-check [{:keys [malli? tap>? args? vararg? callsite throw? fn-name
-                         validate-fn explain-fn humanize-fn]}
+(defn run-check [{:guardrails/keys [malli? validate-fn explain-fn humanize-fn]
+                  :keys            [tap>? args? vararg? expound-opts callsite throw? fn-name]}
                  spec
                  value]
   (let [start           (now-ms)
@@ -112,7 +113,7 @@
     (try
       (when-not (validate-fn spec specable-args)
         (let [explain-data  (explain-fn spec specable-args)
-              explain-human (humanize-fn explain-data)
+              explain-human (humanize-fn explain-data {:guardrails/expound-options expound-opts})
               description   (str
                               "\n"
                               fn-name
@@ -264,7 +265,7 @@
        (s/or
          :set set?
          :pred-sym (s/and symbol?
-                     (complement #{'| '=>})
+                     (complement #{'| '=> '<-})
                      ;; REVIEW: should the `?` be a requirement?
                      #(string/ends-with? (str %) "?"))
          :gspec (s/or :nilable-gspec ::nilable-gspec :gspec ::gspec)
@@ -759,7 +760,7 @@
    (defn generate-fdef
      [env forms]
      (let [{[type fn-name] :name bs :bs} (s/conform ::>fdef-args forms)]
-       (if (:malli? env)
+       (if (:guardrails/malli? env)
          (when (= type :sym)
            `(malli.core/=> ~fn-name [~@(generate-external-fspec bs true)]))
          (case type
@@ -775,7 +776,8 @@
      [cfg fn-tail]
      (let [{:keys                  [env fn-name]
             {:keys [throw? tap>?]} :config} cfg
-           {:keys [async-checks? malli?]} env
+           {:guardrails/keys [validate-fn explain-fn humanize-fn malli?]
+            :keys            [async-checks?]} env
            cljs?         (cljs-env? env)
 
            {:com.fulcrologic.guardrails.core/keys
@@ -798,26 +800,15 @@
            where         (str file ":" line " " fn-name "'s")
            argspec       (gensym "argspec")
            expound-opts  (get (gr.cfg/get-env-config) :expound {})
-           malli-opts    (get (gr.cfg/get-env-config) :malli {})
-           opts          {:fn-name      where
-                          :malli?       malli?
-                          :tap>?        tap>?
-                          :throw?       throw?
-                          :vararg?      (boolean conformed-var-arg)
-                          :expound-opts expound-opts
-                          :validate-fn  (if malli? 'malli.core/validate `s/valid?)
-                          :explain-fn   (if malli?
-                                          `(fn [schema# value#]
-                                             (malli.core/explain
-                                               schema#
-                                               value#
-                                               ~malli-opts))
-                                          `s/explain-data)
-                          :humanize-fn  (if malli?
-                                          `(partial
-                                             com.fulcrologic.guardrails.malli.core/humanize-schema
-                                             ~malli-opts)
-                                          `(partial humanize-spec ~expound-opts))}
+           opts          {:fn-name                where
+                          :guardrails/malli?      malli?
+                          :tap>?                  tap>?
+                          :throw?                 throw?
+                          :vararg?                (boolean conformed-var-arg)
+                          :expound-opts           expound-opts
+                          :guardrails/validate-fn validate-fn
+                          :guardrails/explain-fn  explain-fn
+                          :guardrails/humanize-fn humanize-fn}
            gosym         (if cljs? 'cljs.core.async/go 'clojure.core.async/go)
            putsym        (if cljs? 'cljs.core.async/>! 'clojure.core.async/>!)
            args-check    (if async-checks?
@@ -864,15 +855,15 @@
            arity               (key conformed-fn-tails)
            fn-name             (:name conformed-gdefn)
            docstring           (:docstring conformed-gdefn)
-           malli?              (:malli? env)
+           malli?              (:guardrails/malli? env)
            raw-meta-map        (merge
                                  (:meta conformed-gdefn)
                                  {::guardrails true})
            ;;; Assemble the config
            {:keys [defn-macro] :as config} (gr.cfg/merge-config env (meta fn-name) raw-meta-map)
            defn-sym            (cond defn-macro (with-meta (symbol defn-macro) {:private private})
-                                 private 'defn-
-                                 :else 'defn)
+                                     private 'defn-
+                                     :else 'defn)
            ;;; Code generation
            external-fdef-body  (generate-external-fspec conformed-fn-tails malli?)
            fdef                (when external-fdef-body
@@ -910,16 +901,16 @@
                :arity-n (s/+ (s/and seq? ::args+gspec+body)))))))
 
 #?(:clj
-   (defn >defn* [env form body {:keys [private? malli?] :as opts}]
+   (defn >defn* [env form body {:keys [private? guardrails/malli?] :as opts}]
      (let [cfg    (gr.cfg/get-env-config)
            mode   (gr.cfg/mode cfg)
            async? (gr.cfg/async? cfg)]
        (cond
          (not cfg) (clean-defn 'defn body)
          (#{:copilot :pro} mode) `(do (defn ~@body)
-                                    ~(gr.pro/>defn-impl env body opts))
+                                      ~(gr.pro/>defn-impl env body opts))
          (#{:runtime :all} mode)
-         (cond-> (remove nil? (generate-defn body private? (assoc env :form form :async-checks? async? :malli? malli?)))
+         (cond-> (remove nil? (generate-defn body private? (assoc env :form form :async-checks? async? :guardrails/malli? malli?)))
            (cljs-env? env) clj->cljs
            (= :all mode) (-> vec (conj (gr.pro/>defn-impl env body opts)) seq))))))
 
@@ -930,7 +921,10 @@
      {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                   [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
      [& forms]
-     (>defn* &env &form forms {:private? false})))
+     (let [env (merge &env `{:guardrails/validate-fn s/valid?
+                             :guardrails/explain-fn  s/explain-data
+                             :guardrails/humanize-fn humanize-spec})]
+       (>defn* env &form forms {:private? false}))))
 
 #?(:clj
    (s/fdef >defn :args ::>defn-args))
@@ -942,7 +936,10 @@
      {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                   [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
      [& forms]
-     (>defn* &env &form forms {:private? true})))
+     (let [env (merge &env `{:guardrails/validate-fn s/valid?
+                             :guardrails/explain-fn  s/explain-data
+                             :guardrails/humanize-fn humanize-spec})]
+       (>defn* env &form forms {:private? true}))))
 
 (comment
   (>defn- test-function [] [=> nil?] nil)

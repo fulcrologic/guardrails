@@ -7,7 +7,7 @@
               [com.fulcrologic.guardrails.impl.pro :as gr.pro]
               [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs strip-colors]]])
     [com.fulcrologic.guardrails.core :as gr.core]
-    [com.fulcrologic.guardrails.malli.registry :refer [register!]]
+    [com.fulcrologic.guardrails.malli.registry :as gr.reg :refer [register!]]
     [malli.core :as m]
     [malli.dev.pretty :as mp]
     [malli.error :as me]
@@ -28,9 +28,9 @@
                      #(string/ends-with? (str %) "?"))
          :gspec (s/or :nilable-gspec ::gr.core/nilable-gspec :gspec ::gr.core/gspec)
          :spec-key qualified-keyword?
-          :malli-key (s/and simple-keyword? (complement #{:st :ret :gen}))
-          :malli-sym (s/and symbol? (complement #{'| '=> '<-}))
-          :malli-vec (s/and vector? (comp simple-keyword? first))
+         :malli-key (s/and simple-keyword? (complement #{:st :ret :gen}))
+         :malli-sym (s/and symbol? (complement #{'| '=> '<-}))
+         :malli-vec (s/and vector? (comp simple-keyword? first))
          :fun ::gr.core/pred-fn))))
 
 #?(:clj
@@ -77,6 +77,10 @@
        (when (and cfg (#{:runtime :all} mode))
          `(register! ~k ~v)))))
 
+(defn default-validate [schema value] (m/validate schema value {:registry gr.reg/registry}))
+(defn default-explain [schema value] (malli.core/explain schema value {:registry gr.reg/registry}))
+(defn default-humanize [data opts] (humanize-schema (merge opts {:registry gr.reg/registry}) data))
+
 #?(:clj
    (do
      (defmacro >defn
@@ -85,8 +89,10 @@
        {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                     [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
        [& forms]
-       (gr.core/>defn* &env &form forms {:private? false :malli? true}))
-
+       (let [env (merge &env `{:guardrails/validate-fn default-validate
+                               :guardrails/explain-fn  default-explain
+                               :guardrails/humanize-fn default-humanize})]
+         (gr.core/>defn* env &form forms {:private? false :guardrails/malli? true})))
      (s/fdef >defn :args ::gr.core/>defn-args)))
 
 
@@ -98,8 +104,10 @@
        {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                     [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
        [& forms]
-       (gr.core/>defn* &env &form forms {:private? true :malli? true}))
-
+       (let [env (merge &env `{:guardrails/validate-fn default-validate
+                               :guardrails/explain-fn  default-explain
+                               :guardrails/humanize-fn default-humanize})]
+         (gr.core/>defn* env &form forms {:private? true :guardrails/malli? true})))
      (s/fdef >defn- :args ::gr.core/>defn-args)))
 
 
@@ -112,7 +120,7 @@
                     [name ([params*] gspec) +])}
        [& forms]
        (when-let [cfg (gr.cfg/get-env-config)]
-         (let [env (assoc &env :malli? true)]
+         (let [env (assoc &env :guardrails/malli? true)]
            `(do
               ~(when (#{:pro :copilot :all} (gr.cfg/mode cfg))
                  (gr.pro/>fdef-impl env forms))

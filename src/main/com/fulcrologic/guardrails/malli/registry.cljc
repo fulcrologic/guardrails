@@ -21,6 +21,7 @@ namespaced to the library itself."}
   [type ?schema] (swap! schema-atom assoc type ?schema))
 
 (defn merge-schemas!
-  "Add the given Malli schemas to the GR registry. All of Malli's default-schemas are merged by default."
-  [schemas]
-  (swap! schema-atom merge schemas))
+  "Add the given Malli schemas to the GR registry. All of Malli's default-schemas are merged by default.
+   schemas."
+  [& schemas]
+  (swap! schema-atom apply merge schemas))

@@ -107,6 +107,9 @@
   (defn strip-colors [s]
     (clojure.string/replace s ansi-color-regex "")))
 
+#?(:cljs
+   (def ^:dynamic *err* *out*))
+
 (defn report-problem [message]
   (binding [*out* *err*]
     (println message)))

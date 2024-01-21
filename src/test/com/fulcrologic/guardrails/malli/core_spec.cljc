@@ -1,8 +1,9 @@
 (ns com.fulcrologic.guardrails.malli.core-spec
   (:require
     [com.fulcrologic.guardrails.config :as config]
-    [com.fulcrologic.guardrails.malli.core :refer [=> >defn]]
-    [fulcro-spec.core :refer [=throws=> assertions specification]]))
+    [com.fulcrologic.guardrails.malli.core :refer [=> >defn >def]]
+    [fulcro-spec.core :refer [=throws=> assertions specification]]
+    [malli.core :as m]))
 
 #?(:clj
    (do
@@ -18,10 +19,12 @@
                                          :expound    {:show-valid-values? true
                                                       :print-specs?       true}})))
 
+(>def ::foo [:and :int [:>= 0]])
+
 (>defn test-function
   "docstring"
   ([a]
-   [int? => int?]
+   [::foo => int?]
    (if (> a 0)
      (* a (test-function (dec a)))
      1))
@@ -54,6 +57,10 @@
 (>defn vararg-seq [& targets]
   [[:* vector?] => vector?]
   (into [] (seq targets)))
+
+(specification "Guardrails registry"
+  (assertions "Is separate from the default malli registry"
+    (m/validate ::foo 42) =throws=> #"invalid-schema"))
 
 (specification "General transformed functions"
   (assertions
