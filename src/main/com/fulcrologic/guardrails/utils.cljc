@@ -108,15 +108,9 @@
     (clojure.string/replace s ansi-color-regex "")))
 
 (defn report-problem [message]
-  (println message)
-  #?(:clj
-     (.println System/err message)
-     :cljs
-     (js/console.error message)))
+  (binding [*out* *err*]
+    (println message)))
 
 (defn report-exception [e message]
-  (println message)
-  #?(:clj
-     (.println System/err (str message \n (.getMessage ^Exception e) "\n" (stacktrace e)))
-     :cljs
-     (js/console.error message e)))
+  (binding [*out* *err*]
+    (println (str message \n (.getMessage ^Exception e) "\n" (stacktrace e)))))

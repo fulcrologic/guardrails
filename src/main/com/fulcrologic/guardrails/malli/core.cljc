@@ -7,35 +7,31 @@
               [com.fulcrologic.guardrails.impl.pro :as gr.pro]
               [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs strip-colors]]])
     [com.fulcrologic.guardrails.core :as gr.core]
+    [com.fulcrologic.guardrails.malli.registry :refer [register!]]
     [malli.core :as m]
     [malli.dev.pretty :as mp]
     [malli.error :as me]
-    [malli.registry :as mr]))
+    [malli.registry]))
 
 
 (def => :ret)
 (def | :st)
 (def <- :gen)
 
-(defonce ^:private registry* (atom (m/default-schemas)))
-(mr/set-default-registry! (mr/mutable-registry registry*))
-(defn register! [type ?schema] (swap! registry* assoc type ?schema))
-
-
 (comment
   #?(:clj
-      (def spec-elem-malli-only
-        (s/or
-          :pred-sym (s/and symbol?
-                      (complement #{'| '=>})
-                      ;; REVIEW: should the `?` be a requirement?
-                      #(string/ends-with? (str %) "?"))
-          :gspec (s/or :nilable-gspec ::gr.core/nilable-gspec :gspec ::gr.core/gspec)
-          :spec-key qualified-keyword?
+     (def spec-elem-malli-only
+       (s/or
+         :pred-sym (s/and symbol?
+                     (complement #{'| '=>})
+                     ;; REVIEW: should the `?` be a requirement?
+                     #(string/ends-with? (str %) "?"))
+         :gspec (s/or :nilable-gspec ::gr.core/nilable-gspec :gspec ::gr.core/gspec)
+         :spec-key qualified-keyword?
           :malli-key (s/and simple-keyword? (complement #{:st :ret :gen}))
           :malli-sym (s/and symbol? (complement #{'| '=> '<-}))
           :malli-vec (s/and vector? (comp simple-keyword? first))
-          :fun ::gr.core/pred-fn))))
+         :fun ::gr.core/pred-fn))))
 
 #?(:clj
    ;; REVIEW: There doesn't appear to be a straightforward way to properly split
@@ -74,8 +70,12 @@
 
 
 #?(:clj
-   (defmacro >def [k v] `(register! ~k ~v)))
-
+   (defmacro >def [k v]
+     (let [cfg  (gr.cfg/get-env-config)
+           mode (gr.cfg/mode cfg)]
+       ;; NOTE: Possibly manual override to always include them?
+       (when (and cfg (#{:runtime :all} mode))
+         `(register! ~k ~v)))))
 
 #?(:clj
    (do

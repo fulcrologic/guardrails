@@ -1,9 +1,8 @@
-(ns com.fulcrologic.guardrails.core-spec
+(ns com.fulcrologic.guardrails.malli.core-spec
   (:require
-    [clojure.spec.alpha :as s]
     [com.fulcrologic.guardrails.config :as config]
-    [com.fulcrologic.guardrails.core :as gr :refer [=> >defn]]
-    [fulcro-spec.core :refer [=throws=> assertions provided specification]]))
+    [com.fulcrologic.guardrails.malli.core :refer [=> >defn]]
+    [fulcro-spec.core :refer [=throws=> assertions specification]]))
 
 #?(:clj
    (do
@@ -19,26 +18,6 @@
                                          :expound    {:show-valid-values? true
                                                       :print-specs?       true}})))
 
-#?(:clj
-   (specification "Normal mode >defn macro"
-     (let [test-fn '(>defn f [x] [int? => int?] (inc x))]
-
-       (provided "There is no config"
-         (config/get-env-config) => nil
-         (let [output (gr/>defn* {} test-fn (rest test-fn) {})]
-           (assertions
-             "Emits a normal function"
-             output => '(defn f [x] (inc x)))))
-
-       (provided "There is a free config"
-         (config/get-env-config & _) => {}
-         (gr/generate-defn & _) => '(:stub/free-defn)
-
-         (let [output (gr/>defn* {} test-fn (rest test-fn) {})]
-           (assertions
-             "Emits the free version"
-             output => `(:stub/free-defn)))))))
-
 (>defn test-function
   "docstring"
   ([a]
@@ -52,31 +31,28 @@
      (recur a (inc b))
      (+ a b)))
   ([a b c & d]
-   [int? int? int? (s/* int?) => int?]
+   [int? int? int? [:* int?] => int?]
    (if (seq d)
      (reduce + 0 d)
      (+ a b c))))
 
-(s/def ::a int?)
-(s/def ::b int?)
-
 (>defn kw-func
   [& {:keys [a b] :as c}]
-  [(s/keys* :req-un [::a] :opt-un [::b]) => int?]
+  [[:* [:cat :keyword :any]] => int?]
   (+ a b))
 
 (>defn kw-func2
   [x & {:keys [a b] :as c}]
-  [int? (s/keys* :req-un [::a] :opt-un [::b]) => int?]
+  [int? [:* [:cat :keyword :any]] => int?]
   (+ x a b))
 
 (>defn seq-func
   [x & [a b & more]]
-  [int? (s/* int?) => int?]
+  [int? [:* int?] => int?]
   (+ x a b))
 
 (>defn vararg-seq [& targets]
-  [(s/* vector?) => vector?]
+  [[:* vector?] => vector?]
   (into [] (seq targets)))
 
 (specification "General transformed functions"
@@ -84,11 +60,11 @@
     "fixed arity, recursive"
     (test-function 3) => 6
     "Fixed-arity with bad argument"
-    (test-function 9.7) =throws=> #"should satisfy"
+    (test-function 9.7) =throws=> #"should be an int"
     "fixed arity, tail recusive"
     (test-function 3 2) => 6
     "(fails on bad args)"
-    (test-function 5 9.7) =throws=> #"should satisfy"
+    (test-function 5 9.7) =throws=> #"should be an int"
     "vararg with no extra args"
     (test-function 1 1 1) => 3
     "vararg with extra args"

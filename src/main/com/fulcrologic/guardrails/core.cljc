@@ -105,6 +105,10 @@
                             (into (vec (butlast value)) (seq varg)))
                           value)
         valid-exception (atom nil)]
+    ;; FIXME: @gnl Output should be:
+    ;; For function a.b/c
+    ;; expected: [int? double? => int?]
+    ;; actual: [nil 2.0] => "hello"
     (try
       (when-not (validate-fn spec specable-args)
         (let [explain-data  (explain-fn spec specable-args)

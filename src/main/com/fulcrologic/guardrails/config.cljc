@@ -142,3 +142,14 @@
                       meta-maps)
                  (into {}))]
     config))
+
+#?(:clj
+   (defmacro ?runtime
+     "If guardrails is enabled in runtime mode, then this evaluates to `v`, otherwise evaluates to nil (or dflt)."
+     ([v] (?runtime v nil))
+     ([v dflt]
+      (let [cfg  (get-env-config)
+            mode (mode cfg)]
+        (if (and cfg (#{:runtime :all} mode))
+          v
+          dflt)))))
