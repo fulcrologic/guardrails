@@ -5,13 +5,79 @@
 ;; By using this software in any fashion, you are agreeing to be bound by
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
+;; Some additions by Tony Kay, Fulcrologic, LLC
 
-(ns ^:no-doc com.fulcrologic.guardrails.config
+(ns com.fulcrologic.guardrails.config
+  "Manages the guardrails configuration. Most of this is automatic, and is controlled by files you place on the
+   filesystem and possibly reference by system properties (which you can set on the JVM with the -D option).
+
+   Controlling Guardrails Checks at Runtime
+
+   Normally if guardrails is enabled, then the macros (e.g. `>defn`) emit code that will cause checking to happen
+   on every call. This is fine when you are working on files you own, but as your project grows, and you possibly
+   bring in libraries that also use Guardrails you may find that runtime checking adds significant (and unacceptable)
+   overhead to your development environment.
+
+   As a library author, you can include a file named `guardrails-export.edn` in the root of your main source code
+   (making sure it gets copied into your distribution jar at the top-level). This file can be used to auto-exclude
+   namespaces or functions from runtime checks, so that users of your library do not take an unnecessary performance hit.
+
+   The idea is that all of the internal implementation stuff can have GR turned off because you tested your library
+   and are sure you're doing internal cross-calls correctly.
+
+   So, your library can leave checking turned on at the core API interface level.
+
+   Say you have these namespaces in your library:
+
+   ```
+   com.project.impl
+   com.project.other
+   com.project.core
+   ```
+
+   You might include the following `guardrails-export.edn` in your `src` folder:
+
+   ```
+   {:exclude #{com.project.impl com.project.other}}
+   ```
+
+   Now users of your library that also use GR will not take a performance hit on your internal implementation.
+
+   An as end user you can *always* choose to turn checking on/off anywhere/everywhere. See:
+
+   allow-checks! - Enable checking on something that was excluded
+   exclude-checks! - Disable checking on something
+   clear-exclusions! - Enable checking EVERYWHERE
+   reset-exclusions! - Bring the exclusions back to load-time default (library export values)
+   excluded? - Check if a function/ns is currently being excluded
+
+   Disabling Exclusions Globally (for CI/Testing)
+
+   There are times when you might want the exclusions to not apply. For example as a library author running
+   local tests from the CLI (e.g. kaocha) you don't want your exclusions being included.
+
+   You can globally disable exclusions by choosing an alternate config file (with JVM `-Dguardrails.config=filename`)
+   and adding a flag:
+
+   ```
+   {:throw?              true
+    :disable-exclusions? true}
+   ```
+
+   This will cause a runtime check on all instrumented functions everywhere, including other libraries.
+
+   Your alternative is to make sure that something like `clear-exclusions!` runs before any of your tests.
+   "
   #?(:cljs (:require-macros com.fulcrologic.guardrails.config))
   (:require
     [com.fulcrologic.guardrails.utils :as utils]
-    #?@(:clj  [[clojure.edn :as edn]]
-        :cljs [[cljs.env :as cljs-env]])))
+    #?@(:clj  [[clojure.edn :as edn]
+               [clojure.set :as set]]
+        :cljs [[cljs.env :as cljs-env]]))
+  #?(:clj
+     (:import
+       [java.io File]
+       (java.util.jar JarEntry JarFile))))
 
 ;; This isn't particularly pretty, but it's how we avoid
 ;; having ClojureScript as a required dependency on Clojure
@@ -153,3 +219,107 @@
         (if (and cfg (#{:runtime :all} mode))
           v
           dflt)))))
+
+#?(:clj (def ^String export-file "guardrails-export.edn"))
+
+#?(:clj
+   (defn- export-urls
+     "Internal. Find all of the export files on the classpath."
+     []
+     (let [cl (.. Thread currentThread getContextClassLoader)]
+       (enumeration-seq (.getResources cl export-file)))))
+
+#?(:clj
+   (defn- load-export-file
+     "Internal. Combine a classpath export file with master-config"
+     [master-config ^java.net.URL url]
+     (binding [*out* *err*]
+       (with-open [rdr (clojure.lang.LineNumberingPushbackReader.
+                         (java.io.InputStreamReader.
+                           (.openStream url) "UTF-8"))]
+         (let [read-opts  {:eof nil}
+               new-export (read read-opts rdr)]
+           (if (or
+                 (not (map? new-export))
+                 (not (set? (:exclude new-export)))
+                 (not (every? symbol? (:exclude new-export))))
+             (println (str "Not a valid guardrails export. Excluded key must be a set of symbols: " url))
+             (update master-config :exclude set/union (into #{} (map keyword) (:exclude new-export)))))))))
+
+#?(:clj
+   (defn ^:no-doc -load-exports
+     "Internal. Loads all of the guardrails-export.edn files on the classpath, and returns a result of merging all of them
+      together."
+     []
+     (reduce load-export-file {} (export-urls))))
+
+#?(:clj
+   (defmacro defexclusions [sym]
+     (let [{:keys [exclude]} (-load-exports)
+           exclusion-map (into {} (map (fn [s] [(keyword s) true])) exclude)]
+       `(def ~sym (volatile! '~exclusion-map)))))
+
+(com.fulcrologic.guardrails.config/defexclusions default-exclusions)
+(com.fulcrologic.guardrails.config/defexclusions current-exclusions)
+
+(defn reset-exclusions!
+  "Reset the exclusions back to what they were when the system first loaded (what library authors auto-excluded)"
+  []
+  (vreset! current-exclusions @default-exclusions))
+
+(defn clear-exclusions!
+  "Clear all exclusions, so that checks are done for everything.
+
+   All namespaces, even those that library authors have auto-excluded, will
+   be checked. This can significantly slow your development REPL. The approximate overhead for the average
+   check is about 10-30 microseconds. That is very small but in loops and such can add up to significant
+   overhead (many functions take nanoseconds to run...so this can easily make your program run 100x slower."
+  []
+  (vreset! current-exclusions {}))
+
+(defn exclude-checks!
+  "Exclude a namespace or defn from checking. Can be a keyword or symbol. Giving a namespace will turn off all
+   checks in that namespace. Giving a fn name will only affect that function."
+  [ns-or-fn]
+  {:pre [(or (keyword? ns-or-fn) (symbol? ns-or-fn))]}
+  (vswap! current-exclusions assoc (keyword ns-or-fn) true))
+
+(defn allow-checks!
+  "Allow a namespace or >defn for checking. Can be a keyword or symbol. Giving an entire namespace
+   will clear exclusions on all keys that use that ns. Giving a fn name will enable checking on that
+   function, BUT keep a ns exclusion (if present)."
+  [ns-or-fn]
+  {:pre [(or (keyword? ns-or-fn) (symbol? ns-or-fn))]}
+  (let [k        (keyword ns-or-fn)
+        entry-ns (fn [k] (if (qualified-keyword? k) (namespace k) (name k)))
+        kns      (entry-ns k)]
+    (if (qualified-keyword? k)
+      (vswap! current-exclusions assoc k false)
+      (vswap! current-exclusions (fn [m]
+                                   (reduce-kv
+                                     (fn [acc ex v]
+                                       (if (= (entry-ns ex) kns)
+                                         acc
+                                         (assoc acc ex v)))
+                                     {}
+                                     m))))))
+
+(defn ^:no-doc -excluded?
+  "INTERNAL. Do not use."
+  [fqkw nskw]
+  ;; We use keywords because they are faster to look up (they are interned), and precalc them in the macro at compile time
+  (let [ex   @current-exclusions
+        kval (get ex fqkw)]
+    (or
+      (true? kval)
+      (and (not (false? kval)) (true? (get ex nskw))))))
+
+(defn excluded?
+  "Returns true if the fully-qualified-name matches something (namespace or fn) that is currently excluded from checks."
+  [fully-qualified-name]
+  (let [k       (keyword fully-qualified-name)
+        q?      (qualified-keyword? k)
+        nspc    (if q? (namespace k) (name k))
+        fn-name (if q? (name k) nil)
+        coord   [(when q? (keyword nspc (name fn-name))) (keyword nspc)]]
+    (apply -excluded? coord)))

@@ -1,13 +1,13 @@
 (ns com.fulcrologic.guardrails.malli.core
   #?(:cljs (:require-macros com.fulcrologic.guardrails.malli.core))
   (:require
+    [com.fulcrologic.guardrails.malli.registry :as gr.reg :refer [register!]]
     #?@(:clj [[clojure.spec.alpha :as s]
               [clojure.string :as string]
               [com.fulcrologic.guardrails.config :as gr.cfg]
               [com.fulcrologic.guardrails.impl.pro :as gr.pro]
               [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs strip-colors]]])
     [com.fulcrologic.guardrails.core :as gr.core]
-    [com.fulcrologic.guardrails.malli.registry :as gr.reg :refer [register!]]
     [malli.core :as m]
     [malli.dev.pretty :as mp]
     [malli.error :as me]

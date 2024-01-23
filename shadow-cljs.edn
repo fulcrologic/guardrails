@@ -4,7 +4,7 @@
                      :test-dir         "resources/public/js/test"
                      :ns-regexp        "-spec$"
                      :compiler-options {:static-fns      false
-                                        :external-config {:guardrails {:throw? false}}}
+                                        :external-config {:guardrails {:throw? true}}}
                      :devtools         {:http-port          9002
                                         :http-resource-root "public"
                                         :http-root          "resources/public/js/test"}}

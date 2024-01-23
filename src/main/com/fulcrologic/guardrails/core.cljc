@@ -15,15 +15,16 @@
   (:require
     #?@(:clj  [[clojure.set :as set]
                [clojure.walk :as walk]
-               [com.fulcrologic.guardrails.config :as gr.cfg]
                [com.fulcrologic.guardrails.impl.pro :as gr.pro]
                [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs]]]
         :cljs [[com.fulcrologic.guardrails.impl.externs]])
     [com.fulcrologic.guardrails.utils :refer [strip-colors]]
+    [com.fulcrologic.guardrails.config :as gr.cfg]
     [clojure.core.async :as async]
     [clojure.spec.alpha :as s]
     [clojure.string :as string]
     [com.fulcrologic.guardrails.utils :as utils]
+    [taoensso.tufte :refer [profile p]]
     [expound.alpha :as exp]))
 
 ;; It doesn't actually matter what these are bound to, they are stripped by
@@ -97,59 +98,60 @@
                   :keys            [tap>? args? vararg? expound-opts callsite throw? fn-name]}
                  spec
                  value]
-  (let [start           (now-ms)
-        vargs?          (and args? vararg?)
-        varg            (if vargs? (last (seq value)) nil)
-        specable-args   (if vargs?
-                          (if (map? varg)
-                            (into (vec (butlast value)) (flatten (seq varg)))
-                            (into (vec (butlast value)) (seq varg)))
-                          value)
-        valid-exception (atom nil)]
-    ;; FIXME: @gnl Output should be:
-    ;; For function a.b/c
-    ;; expected: [int? double? => int?]
-    ;; actual: [nil 2.0] => "hello"
-    (try
-      (when-not (validate-fn spec specable-args)
-        (let [explain-data  (explain-fn spec specable-args)
-              explain-human (humanize-fn explain-data {:guardrails/expound-options expound-opts})
-              description   (str
-                              "\n"
-                              fn-name
-                              (if args? " argument list" " return type") "\n"
-                              explain-human)
-              context       (get-global-context)]
-          (when (and tap tap>?)
-            (tap #:com.fulcrologic.guardrails
-                    {:_/type        :com.fulcrologic.guardrails/validation-error
-                     :fn-name       fn-name
-                     :failure-point (if args? :args :ret)
-                     :spec          spec
-                     :explain-data  explain-data
-                     :explain-human (strip-colors explain-human)}))
-          (if throw?
-            (reset! valid-exception
-              (ex-info (cond->> description context
-                         (str "\nContext: " context))
-                (with-meta
-                  #:com.fulcrologic.guardrails
-                          {:_/type        :com.fulcrologic.guardrails/validation-error
-                           :fn-name       fn-name
-                           :failure-point (if args? :args :ret)
-                           :spec          spec
-                           :context       context}
-                  #:com.fulcrologic.guardrails
-                          {:val specable-args})))
-            (utils/report-problem (str description "\n" (utils/stacktrace (or callsite (ex-info "" {}))))))))
-      (catch #?(:cljs :default :clj Throwable) e
-        (utils/report-exception e (str "BUG: Internal error in " (if malli? "Malli.\n" "expound or clojure spec.\n"))))
-      (finally
-        (let [duration (- (now-ms) start)]
-          (when (> duration 100)
-            (utils/report-problem (str "WARNING: " fn-name " " (if args? "argument specs" "return spec") " took " duration "ms to run."))))))
-    (when @valid-exception
-      (throw @valid-exception)))
+  (p `run-check
+    (let [start           (now-ms)
+          vargs?          (and args? vararg?)
+          varg            (if vargs? (last (seq value)) nil)
+          specable-args   (if vargs?
+                            (if (map? varg)
+                              (into (vec (butlast value)) (flatten (seq varg)))
+                              (into (vec (butlast value)) (seq varg)))
+                            value)
+          valid-exception (atom nil)]
+      ;; FIXME: @gnl Output should be:
+      ;; For function a.b/c
+      ;; expected: [int? double? => int?]
+      ;; actual: [nil 2.0] => "hello"
+      (try
+        (when-not (p `actual-validation (validate-fn spec specable-args))
+          (let [explain-data  (explain-fn spec specable-args)
+                explain-human (humanize-fn explain-data {:guardrails/expound-options expound-opts})
+                description   (str
+                                "\n"
+                                fn-name
+                                (if args? " argument list" " return type") "\n"
+                                explain-human)
+                context       (get-global-context)]
+            (when (and tap tap>?)
+              (tap #:com.fulcrologic.guardrails
+                      {:_/type        :com.fulcrologic.guardrails/validation-error
+                       :fn-name       fn-name
+                       :failure-point (if args? :args :ret)
+                       :spec          spec
+                       :explain-data  explain-data
+                       :explain-human (strip-colors explain-human)}))
+            (if throw?
+              (reset! valid-exception
+                (ex-info (cond->> description context
+                           (str "\nContext: " context))
+                  (with-meta
+                    #:com.fulcrologic.guardrails
+                            {:_/type        :com.fulcrologic.guardrails/validation-error
+                             :fn-name       fn-name
+                             :failure-point (if args? :args :ret)
+                             :spec          spec
+                             :context       context}
+                    #:com.fulcrologic.guardrails
+                            {:val specable-args})))
+              (utils/report-problem (str description "\n" (utils/stacktrace (or callsite (ex-info "" {}))))))))
+        (catch #?(:cljs :default :clj Throwable) e
+          (utils/report-exception e (str "BUG: Internal error in " (if malli? "Malli.\n" "expound or clojure spec.\n"))))
+        (finally
+          (let [duration (- (now-ms) start)]
+            (when (> duration 100)
+              (utils/report-problem (str "WARNING: " fn-name " " (if args? "argument specs" "return spec") " took " duration "ms to run."))))))
+      (when @valid-exception
+        (throw @valid-exception))))
   nil)
 
 #?(:clj
@@ -774,11 +776,11 @@
 #?(:clj
    (defn- process-defn-body
      [cfg fn-tail]
-     (let [{:keys                  [env fn-name]
-            {:keys [throw? tap>?]} :config} cfg
+     (let [{:keys                                      [env fn-name]
+            {:keys [throw? tap>? disable-exclusions?]} :config} cfg
            {:guardrails/keys [validate-fn explain-fn humanize-fn malli?]
             :keys            [async-checks?]} env
-           cljs?         (cljs-env? env)
+           cljs?           (cljs-env? env)
 
            {:com.fulcrologic.guardrails.core/keys
             [conformed-var-arg arg-syms raw-arg-vec]
@@ -786,8 +788,8 @@
            (process-args fn-tail)
 
            {:keys [body args gspec]} fn-tail
-           fspec         (when gspec
-                           (gspec->fspec* processed-params gspec {::malli? malli?}))
+           fspec           (when gspec
+                             (gspec->fspec* processed-params gspec {::malli? malli?}))
            [prepost orig-body-forms] (case (key body)
                                        :prepost+body [(-> body val :prepost)
                                                       (-> body val :body)]
@@ -796,49 +798,60 @@
                                  (meta fn-name)
                                  {:file #?(:clj *file* :cljs "N/A")
                                   :line (some-> env :form meta :line)})
-           body-forms    orig-body-forms
-           where         (str file ":" line " " fn-name "'s")
-           argspec       (gensym "argspec")
-           expound-opts  (get (gr.cfg/get-env-config) :expound {})
-           opts          {:fn-name                where
-                          :guardrails/malli?      malli?
-                          :tap>?                  tap>?
-                          :throw?                 throw?
-                          :vararg?                (boolean conformed-var-arg)
-                          :expound-opts           expound-opts
-                          :guardrails/validate-fn validate-fn
-                          :guardrails/explain-fn  explain-fn
-                          :guardrails/humanize-fn humanize-fn}
-           gosym         (if cljs? 'cljs.core.async/go 'clojure.core.async/go)
-           putsym        (if cljs? 'cljs.core.async/>! 'clojure.core.async/>!)
-           args-check    (if async-checks?
-                           `(let [e# (callsite-exception)]
-                              (~gosym
-                                (~putsym pending-check-channel (fn [] (when ~argspec (run-check (assoc
-                                                                                                  ~(assoc opts :args? true)
-                                                                                                  :callsite e#)
-                                                                                       ~argspec
-                                                                                       ~arg-syms))))))
-                           `(when ~argspec (run-check ~(assoc opts :args? true) ~argspec ~arg-syms)))
-           retspec       (gensym "retspec")
-           ret           (gensym "ret")
-           ret-check     (if async-checks?
-                           `(let [e# (callsite-exception)]
-                              (~gosym
-                                (~putsym pending-check-channel (fn [] (when ~retspec (run-check (assoc
-                                                                                                  ~(assoc opts :args? false)
-                                                                                                  :callsite e#)
-                                                                                       ~retspec
-                                                                                       ~ret))))))
-                           `(when ~retspec (run-check ~(assoc opts :args? false) ~retspec ~ret)))
-           real-function `(fn ~raw-arg-vec ~@body-forms)
-           f             (gensym "f")
-           call          (if (boolean conformed-var-arg)
-                           `(cond
-                              (map? ~(last arg-syms)) (apply ~f ~@(butlast arg-syms) (apply concat (last ~arg-syms)))
-                              (seq ~(last arg-syms)) (apply ~f ~@arg-syms)
-                              :else (~f ~@(butlast arg-syms)))
-                           `(~f ~@arg-syms))]
+           body-forms      orig-body-forms
+           where           (str file ":" line " " fn-name "'s")
+           argspec         (gensym "argspec")
+           nspc            (if cljs? (-> env :ns :name str) (name (ns-name *ns*)))
+           expound-opts    (get (gr.cfg/get-env-config) :expound {})
+           opts            {:fn-name                where
+                            :guardrails/malli?      malli?
+                            :tap>?                  tap>?
+                            :throw?                 throw?
+                            :vararg?                (boolean conformed-var-arg)
+                            :expound-opts           expound-opts
+                            :guardrails/validate-fn validate-fn
+                            :guardrails/explain-fn  explain-fn
+                            :guardrails/humanize-fn humanize-fn}
+           gosym           (if cljs? 'cljs.core.async/go 'clojure.core.async/go)
+           putsym          (if cljs? 'cljs.core.async/>! 'clojure.core.async/>!)
+           exclusion-coord (if disable-exclusions?
+                             [:undefined/function :undefined]
+                             [(keyword nspc (name fn-name)) (keyword nspc)])
+           args-check      (if async-checks?
+                             `(when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
+                                (let [e# (callsite-exception)]
+                                  (~gosym
+                                    (~putsym pending-check-channel (fn []
+                                                                     (when ~argspec
+                                                                       (run-check (assoc
+                                                                                    ~(assoc opts :args? true)
+                                                                                    :callsite e#)
+                                                                         ~argspec
+                                                                         ~arg-syms)))))))
+                             `(when ~argspec
+                                (when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
+                                  (run-check ~(assoc opts :args? true) ~argspec ~arg-syms))))
+           retspec         (gensym "retspec")
+           ret             (gensym "ret")
+           ret-check       (if async-checks?
+                             `(when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
+                                (let [e# (callsite-exception)]
+                                  (~gosym
+                                    (~putsym pending-check-channel (fn [] (when ~retspec (run-check (assoc
+                                                                                                      ~(assoc opts :args? false)
+                                                                                                      :callsite e#)
+                                                                                           ~retspec
+                                                                                           ~ret)))))))
+                             `(when (and ~retspec (not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))))
+                                (run-check ~(assoc opts :args? false) ~retspec ~ret)))
+           real-function   `(fn ~raw-arg-vec ~@body-forms)
+           f               (gensym "f")
+           call            (if (boolean conformed-var-arg)
+                             `(cond
+                                (map? ~(last arg-syms)) (apply ~f ~@(butlast arg-syms) (apply concat (last ~arg-syms)))
+                                (seq ~(last arg-syms)) (apply ~f ~@arg-syms)
+                                :else (~f ~@(butlast arg-syms)))
+                             `(~f ~@arg-syms))]
        `(~@(remove nil? [raw-arg-vec prepost])
           (let [{~argspec :args ~retspec :ret} ~fspec]
             ~args-check
