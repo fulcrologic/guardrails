@@ -22,7 +22,6 @@
     [clojure.string :as string]
     [com.fulcrologic.guardrails.utils :as utils]
     [taoensso.encore :as enc]
-    [taoensso.tufte :refer [profile p]]
     [expound.alpha :as exp]))
 
 ;; It doesn't actually matter what these are bound to, they are stripped by
@@ -96,60 +95,59 @@
                   :keys            [tap>? args? vararg? expound-opts callsite throw? fn-name]}
                  spec
                  value]
-  (p `run-check
-    (let [start           (now-ms)
-          vargs?          (and args? vararg?)
-          varg            (if vargs? (last (seq value)) nil)
-          specable-args   (if vargs?
-                            (if (map? varg)
-                              (into (vec (butlast value)) (flatten (seq varg)))
-                              (into (vec (butlast value)) (seq varg)))
-                            value)
-          valid-exception (atom nil)]
-      ;; FIXME: @gnl Output should be:
-      ;; For function a.b/c
-      ;; expected: [int? double? => int?]
-      ;; actual: [nil 2.0] => "hello"
-      (try
-        (when-not (p `actual-validation (validate-fn spec specable-args))
-          (let [explain-data  (explain-fn spec specable-args)
-                explain-human (humanize-fn explain-data {:guardrails/expound-options expound-opts})
-                description   (str
-                                "\n"
-                                fn-name
-                                (if args? " argument list" " return type") "\n"
-                                explain-human)
-                context       (get-global-context)]
-            (when (and tap tap>?)
-              (tap #:com.fulcrologic.guardrails
-                      {:_/type        :com.fulcrologic.guardrails/validation-error
-                       :fn-name       fn-name
-                       :failure-point (if args? :args :ret)
-                       :spec          spec
-                       :explain-data  explain-data
-                       :explain-human (strip-colors explain-human)}))
-            (if throw?
-              (reset! valid-exception
-                (ex-info (cond->> description context
-                           (str "\nContext: " context))
-                  (with-meta
-                    #:com.fulcrologic.guardrails
-                            {:_/type        :com.fulcrologic.guardrails/validation-error
-                             :fn-name       fn-name
-                             :failure-point (if args? :args :ret)
-                             :spec          spec
-                             :context       context}
-                    #:com.fulcrologic.guardrails
-                            {:val specable-args})))
-              (utils/report-problem (str description "\n" (utils/stacktrace (or callsite (ex-info "" {}))))))))
-        (catch #?(:cljs :default :clj Throwable) e
-          (utils/report-exception e (str "BUG: Internal error in " (if malli? "Malli.\n" "expound or clojure spec.\n"))))
-        (finally
-          (let [duration (- (now-ms) start)]
-            (when (> duration 100)
-              (utils/report-problem (str "WARNING: " fn-name " " (if args? "argument specs" "return spec") " took " duration "ms to run."))))))
-      (when @valid-exception
-        (throw @valid-exception))))
+  (let [start           (now-ms)
+        vargs?          (and args? vararg?)
+        varg            (if vargs? (last (seq value)) nil)
+        specable-args   (if vargs?
+                          (if (map? varg)
+                            (into (vec (butlast value)) (flatten (seq varg)))
+                            (into (vec (butlast value)) (seq varg)))
+                          value)
+        valid-exception (atom nil)]
+    ;; FIXME: @gnl Output should be:
+    ;; For function a.b/c
+    ;; expected: [int? double? => int?]
+    ;; actual: [nil 2.0] => "hello"
+    (try
+      (when-not (validate-fn spec specable-args)
+        (let [explain-data  (explain-fn spec specable-args)
+              explain-human (humanize-fn explain-data {:guardrails/expound-options expound-opts})
+              description   (str
+                              "\n"
+                              fn-name
+                              (if args? " argument list" " return type") "\n"
+                              explain-human)
+              context       (get-global-context)]
+          (when (and tap tap>?)
+            (tap #:com.fulcrologic.guardrails
+                    {:_/type        :com.fulcrologic.guardrails/validation-error
+                     :fn-name       fn-name
+                     :failure-point (if args? :args :ret)
+                     :spec          spec
+                     :explain-data  explain-data
+                     :explain-human (strip-colors explain-human)}))
+          (if throw?
+            (reset! valid-exception
+              (ex-info (cond->> description context
+                         (str "\nContext: " context))
+                (with-meta
+                  #:com.fulcrologic.guardrails
+                          {:_/type        :com.fulcrologic.guardrails/validation-error
+                           :fn-name       fn-name
+                           :failure-point (if args? :args :ret)
+                           :spec          spec
+                           :context       context}
+                  #:com.fulcrologic.guardrails
+                          {:val specable-args})))
+            (utils/report-problem (str description "\n" (utils/stacktrace (or callsite (ex-info "" {}))))))))
+      (catch #?(:cljs :default :clj Throwable) e
+        (utils/report-exception e (str "BUG: Internal error in " (if malli? "Malli.\n" "expound or clojure spec.\n"))))
+      (finally
+        (let [duration (- (now-ms) start)]
+          (when (> duration 100)
+            (utils/report-problem (str "WARNING: " fn-name " " (if args? "argument specs" "return spec") " took " duration "ms to run."))))))
+    (when @valid-exception
+      (throw @valid-exception)))
   nil)
 
 #?(:clj
