@@ -1,4 +1,4 @@
-{:defn-macro nil
- :throw?     true
- :expound    {:show-valid-values? true
-              :print-specs?       true}}
+{:defn-macro      nil
+ :throw?          true
+ :expound         {:show-valid-values? true
+                   :print-specs?       true}}

@@ -7,9 +7,6 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 
-;; TASK: add support for custom Malli registry
-;; TODO: add support for checking ret predicate
-
 (ns com.fulcrologic.guardrails.core
   #?(:cljs (:require-macros com.fulcrologic.guardrails.core))
   (:require
@@ -24,6 +21,7 @@
     [clojure.spec.alpha :as s]
     [clojure.string :as string]
     [com.fulcrologic.guardrails.utils :as utils]
+    [taoensso.encore :as enc]
     [taoensso.tufte :refer [profile p]]
     [expound.alpha :as exp]))
 
@@ -774,10 +772,26 @@
      :clj  (AssertionError. "")))
 
 #?(:clj
+   (defn- throttle-form [add-throttle?]
+     (if add-throttle?
+       `(let [ltime#     (deref ~'__gr_vstart-time)
+              now-ns#    (enc/now-nano*)
+              elapsed#   (- now-ns# ltime#)
+              throttle?# (> (/ (double (deref ~'__gr_vncalls)) elapsed#) ~'__gr_max-calls-per-ns)]
+          (when-not throttle?#
+            (vswap! ~'__gr_vncalls inc))
+          (when (> elapsed# ~'__gr_reset-stats-ns)
+            (vreset! ~'__gr_vstart-time now-ns#)
+            (vreset! ~'__gr_vncalls 0))
+          throttle?#)
+       false)))
+
+#?(:clj
    (defn- process-defn-body
      [cfg fn-tail]
-     (let [{:keys                                      [env fn-name]
-            {:keys [throw? tap>? disable-exclusions?]} :config} cfg
+     (let [{:keys                                                      [env fn-name]
+            {max-checks-per-second :guardrails/mcps
+             :keys                 [throw? tap>? disable-exclusions?]} :config} cfg
            {:guardrails/keys [validate-fn explain-fn humanize-fn malli?]
             :keys            [async-checks?]} env
            cljs?           (cljs-env? env)
@@ -833,6 +847,7 @@
                                   (run-check ~(assoc opts :args? true) ~argspec ~arg-syms))))
            retspec         (gensym "retspec")
            ret             (gensym "ret")
+           add-throttling? (number? max-checks-per-second)
            ret-check       (if async-checks?
                              `(when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
                                 (let [e# (callsite-exception)]
@@ -851,13 +866,17 @@
                                 (map? ~(last arg-syms)) (apply ~f ~@(butlast arg-syms) (apply concat (last ~arg-syms)))
                                 (seq ~(last arg-syms)) (apply ~f ~@arg-syms)
                                 :else (~f ~@(butlast arg-syms)))
-                             `(~f ~@arg-syms))]
+                             `(~f ~@arg-syms))
+           throttle-form   (throttle-form add-throttling?)]
        `(~@(remove nil? [raw-arg-vec prepost])
-          (let [{~argspec :args ~retspec :ret} ~fspec]
-            ~args-check
+          (let [{~argspec :args ~retspec :ret} ~fspec
+                throttle# ~throttle-form]
+            (when-not throttle#
+              ~args-check)
             (let [~f ~real-function
                   ~ret ~call]
-              ~ret-check
+              (when-not throttle#
+                ~ret-check)
               ~ret))))))
 
 #?(:clj
@@ -873,7 +892,9 @@
                                  (:meta conformed-gdefn)
                                  {::guardrails true})
            ;;; Assemble the config
-           {:keys [defn-macro] :as config} (gr.cfg/merge-config env (meta fn-name) raw-meta-map)
+           {max-checks-per-second :guardrails/mcps
+            :keys                 [defn-macro] :as config} (gr.cfg/merge-config env (meta fn-name) raw-meta-map)
+           add-throttling?     (number? max-checks-per-second)
            defn-sym            (cond defn-macro (with-meta (symbol defn-macro) {:private private})
                                      private 'defn-
                                      :else 'defn)
@@ -899,8 +920,16 @@
                                    :arity-1 (process-defn-body process-cfg fn-tail-or-tails)
                                    :arity-n (map (partial process-defn-body process-cfg) fn-tail-or-tails)))
            main-defn           `(~@(remove nil? [defn-sym fn-name docstring meta-map])
-                                  ~@processed-fn-bodies)]
-       `(do ~@(remove nil? [fdef `(declare ~fn-name) main-defn])))))
+                                  ~@processed-fn-bodies)
+           throttle-decls      (if add-throttling?
+                                 `[~'__gr_vncalls (volatile! 0)
+                                   ~'__gr_vstart-time (volatile! 0)
+                                   ~'__gr_reset-stats-ns 5e9
+                                   ~'__gr_max-calls-per-ns (/ ~max-checks-per-second 9.0e8) ; fudge factor for nano timing inaccuracies
+                                   ~'__gr_actual-calls (volatile! 0)]
+                                 [])]
+       `(let ~throttle-decls
+          ~@(remove nil? [fdef `(declare ~fn-name) main-defn])))))
 
 #?(:clj
    ;;;; Main macros and public API

@@ -3,6 +3,7 @@
 
  :deps    {expound/expound        {:mvn/version "0.9.0"}
            com.taoensso/tufte     {:mvn/version "2.4.5"}
+           com.taoensso/encore    {:mvn/version "2.123.2"}
            org.clojure/core.async {:mvn/version "1.6.673"}}
 
  :aliases {:test      {:extra-paths ["src/test" "src/test-clj-kondo"]
