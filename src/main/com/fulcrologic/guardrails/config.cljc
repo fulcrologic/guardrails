@@ -22,7 +22,7 @@
    (making sure it gets copied into your distribution jar at the top-level). This file can be used to auto-exclude
    namespaces or functions from runtime checks, so that users of your library do not take an unnecessary performance hit.
 
-   The idea is that all of the internal implementation stuff can have GR turned off because you tested your library
+   The idea is that all internal implementation can have GR turned off because you tested your library
    and are sure you're doing internal cross-calls correctly.
 
    So, your library can leave checking turned on at the core API interface level.
@@ -67,6 +67,27 @@
    This will cause a runtime check on all instrumented functions everywhere, including other libraries.
 
    Your alternative is to make sure that something like `clear-exclusions!` runs before any of your tests.
+
+   Improving Performance with Throttled Checking
+
+   Guardrails normally runs checks on every call. For functions that are called in tight loops this is too much, and
+   leads to serious slowdowns. Excluding the fn or namespace fixes this, but then you have to visibility for problems.
+   An alternative is to ask Guardrails to limit the number of checks to a specific rate/s. This can be done globally,
+   by namespace, or by function (anywhere you can put guardrails config. The option is :guardrails/mcps (max
+   checks per second). The first call is always checked, and then the rate is enforced at ns accuracy at each additional
+   call. Of course this is affected by various factors (timer jitter, etc.), and will give an approximate behavior.
+
+   The overhead of the throttling code is designed to be very light. It isn't present at all unless enabled, and
+   adds somewhere around 30ns of overhead per call. Much less than the roughly 10 microsecond overhead of an actual
+   spec/return value check (almost 1000x faster).
+
+   ```
+   (>defn f
+     {:guardrails/mcps 100}
+     [n]
+     [int? => int?]
+     ...)
+   ```
    "
   #?(:cljs (:require-macros com.fulcrologic.guardrails.config))
   (:require
