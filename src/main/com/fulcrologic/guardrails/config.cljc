@@ -94,11 +94,7 @@
     [com.fulcrologic.guardrails.utils :as utils]
     #?@(:clj  [[clojure.edn :as edn]
                [clojure.set :as set]]
-        :cljs [[cljs.env :as cljs-env]]))
-  #?(:clj
-     (:import
-       [java.io File]
-       (java.util.jar JarEntry JarFile))))
+        :cljs [[cljs.env :as cljs-env]])))
 
 ;; This isn't particularly pretty, but it's how we avoid
 ;; having ClojureScript as a required dependency on Clojure
@@ -106,7 +102,8 @@
    :clj (try
           (ns-unalias (find-ns 'com.fulcrologic.guardrails.utils) 'cljs-env)
           (require '[cljs.env :as cljs-env])
-          (catch Exception _ (require '[com.fulcrologic.guardrails.stubs.cljs-env :as cljs-env]))))
+          (catch Exception _
+            (require '[com.fulcrologic.guardrails.stubs.cljs-env :as cljs-env]))))
 
 (defn mode [config]
   (get config :mode :runtime))
@@ -154,22 +151,22 @@
                                         cljs-compiler-config
                                         (System/getProperty "guardrails.enabled"))
                                 :cljs false)
-                         (let [{:keys [async? throw?] :as result} (or cljs-compiler-config (merge {} (read-config-file)))
+                         (let [{:keys [async? throw?] :as result} (merge {} (read-config-file) cljs-compiler-config)
                                result (if (and async? throw?)
                                         (dissoc result :async?)
                                         result)]
                            (when-not @warned?
                              (reset! warned? true)
-                             (utils/report-problem "GUARDRAILS IS ENABLED. RUNTIME PERFORMANCE WILL BE AFFECTED.")
+                             (utils/report-info "GUARDRAILS IS ENABLED. RUNTIME PERFORMANCE WILL BE AFFECTED.")
                              (when (and async? throw?)
                                (utils/report-problem "INCOMPATIBLE MODES: :throw? and :async? cannot both be true. Disabling async."))
-                             (utils/report-problem (str "Mode: " (mode result) (when (= :runtime (mode result))
-                                                                                 (str "  Async? " (boolean (:async? result))
-                                                                                   "  Throw? " (boolean (:throw? result))))))
-                             (utils/report-problem (str "Guardrails was enabled because "
-                                                     (if cljs-compiler-config
-                                                       "the CLJS Compiler config enabled it"
-                                                       "the guardrails.enabled property is set to a (any) value."))))
+                             (utils/report-info (str "Mode: " (mode result) (when (= :runtime (mode result))
+                                                                              (str "  Async? " (boolean (:async? result))
+                                                                                "  Throw? " (boolean (:throw? result))))))
+                             (utils/report-info (str "Guardrails was enabled because "
+                                                  (if cljs-compiler-config
+                                                    "the CLJS Compiler config enabled it"
+                                                    "the guardrails.enabled property is set to a (any) value."))))
                            result)))]
           ;#?(:clj (.println System/err config)) ; DEBUG
           config))]
@@ -254,18 +251,17 @@
    (defn- load-export-file
      "Internal. Combine a classpath export file with master-config"
      [master-config ^java.net.URL url]
-     (binding [*out* *err*]
-       (with-open [rdr (clojure.lang.LineNumberingPushbackReader.
-                         (java.io.InputStreamReader.
-                           (.openStream url) "UTF-8"))]
-         (let [read-opts  {:eof nil}
-               new-export (read read-opts rdr)]
-           (if (or
-                 (not (map? new-export))
-                 (not (set? (:exclude new-export)))
-                 (not (every? symbol? (:exclude new-export))))
-             (println (str "Not a valid guardrails export. Excluded key must be a set of symbols: " url))
-             (update master-config :exclude set/union (into #{} (map keyword) (:exclude new-export)))))))))
+     (with-open [rdr (clojure.lang.LineNumberingPushbackReader.
+                       (java.io.InputStreamReader.
+                         (.openStream url) "UTF-8"))]
+       (let [read-opts  {:eof nil}
+             new-export (read read-opts rdr)]
+         (if (or
+               (not (map? new-export))
+               (not (set? (:exclude new-export)))
+               (not (every? symbol? (:exclude new-export))))
+           (println (str "Not a valid guardrails export. Excluded key must be a set of symbols: " url))
+           (update master-config :exclude set/union (into #{} (map keyword) (:exclude new-export))))))))
 
 #?(:clj
    (defn ^:no-doc -load-exports

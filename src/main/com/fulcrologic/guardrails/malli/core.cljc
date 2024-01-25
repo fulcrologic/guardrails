@@ -2,11 +2,12 @@
   #?(:cljs (:require-macros com.fulcrologic.guardrails.malli.core))
   (:require
     [com.fulcrologic.guardrails.malli.registry :as gr.reg :refer [register!]]
-    #?@(:clj [[clojure.spec.alpha :as s]
-              [clojure.string :as string]
+    #?@(:clj [[clojure.string :as string]
               [com.fulcrologic.guardrails.config :as gr.cfg]
               [com.fulcrologic.guardrails.impl.pro :as gr.pro]
+              [com.fulcrologic.guardrails.utils :as utils]
               [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs strip-colors]]])
+    [clojure.spec.alpha :as s]
     [com.fulcrologic.guardrails.core :as gr.core]
     [malli.core :as m]
     [malli.dev.pretty :as mp]
@@ -14,9 +15,14 @@
     [malli.registry]))
 
 
+;;; Operators ;;;
+
 (def => :ret)
 (def | :st)
 (def <- :gen)
+
+
+;;; Syntax specs
 
 (comment
   #?(:clj
@@ -24,7 +30,6 @@
        (s/or
          :pred-sym (s/and symbol?
                      (complement #{'| '=>})
-                     ;; REVIEW: should the `?` be a requirement?
                      #(string/ends-with? (str %) "?"))
          :gspec (s/or :nilable-gspec ::gr.core/nilable-gspec :gspec ::gr.core/gspec)
          :spec-key qualified-keyword?
@@ -54,20 +59,26 @@
        :list seq?)))
 
 
-(defn humanize-schema [malli-opts explain-data]
-  (with-out-str
-    ((mp/prettifier
-       ::m/explain
-       "Validation Error"
-       #(me/with-error-messages explain-data)
-       malli-opts))))
-
+;;; Schema definition helpers
 
 #?(:clj
    (defmacro ? [& forms]
      (cond-> `[:maybe ~@forms]
        (cljs-env? &env) clj->cljs)))
 
+
+(def ^:dynamic *coll-check-limit* s/*coll-check-limit*)
+
+#?(:clj
+   (defmacro every
+     ([schema]
+      `(every ~schema *coll-check-limit*))
+     ([schema sample-limit]
+      (cond-> `[:and coll? [:fn #(m/validate [:sequential ~schema] (take ~sample-limit %))]]
+        (cljs-env? &env) clj->cljs))))
+
+
+;;; Main macros
 
 #?(:clj
    (defmacro >def [k v]
@@ -77,9 +88,14 @@
        (when (and cfg (#{:runtime :all} mode))
          `(register! ~k ~v)))))
 
-(defn default-validate [schema value] (m/validate schema value {:registry gr.reg/registry}))
-(defn default-explain [schema value] (malli.core/explain schema value {:registry gr.reg/registry}))
-(defn default-humanize [data opts] (humanize-schema (merge opts {:registry gr.reg/registry}) data))
+(defn validate [schema value] (m/validate schema value {:registry gr.reg/registry}))
+(defn explain [schema value] (malli.core/explain schema value {:registry gr.reg/registry}))
+(defn humanize-schema [data opts] (with-out-str
+                                    ((mp/prettifier
+                                       ::m/explain
+                                       "Validation Error"
+                                       #(me/with-error-messages data)
+                                       (merge opts {:registry gr.reg/registry})))))
 
 #?(:clj
    (do
@@ -89,9 +105,9 @@
        {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                     [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
        [& forms]
-       (let [env (merge &env `{:guardrails/validate-fn default-validate
-                               :guardrails/explain-fn  default-explain
-                               :guardrails/humanize-fn default-humanize})]
+       (let [env (merge &env `{:guardrails/validate-fn  validate
+                               :guardrails/explain-fn   explain
+                               :guardrails/humanize-fn  humanize-schema})]
          (gr.core/>defn* env &form forms {:private? false :guardrails/malli? true})))
      (s/fdef >defn :args ::gr.core/>defn-args)))
 
@@ -104,9 +120,9 @@
        {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                     [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
        [& forms]
-       (let [env (merge &env `{:guardrails/validate-fn default-validate
-                               :guardrails/explain-fn  default-explain
-                               :guardrails/humanize-fn default-humanize})]
+       (let [env (merge &env `{:guardrails/validate-fn  validate
+                               :guardrails/explain-fn   explain
+                               :guardrails/humanize-fn  humanize-schema})]
          (gr.core/>defn* env &form forms {:private? true :guardrails/malli? true})))
      (s/fdef >defn- :args ::gr.core/>defn-args)))
 
@@ -128,4 +144,3 @@
                  (cljs-env? &env) clj->cljs)))))
 
      (s/fdef >fdef :args ::gr.core/>fdef-args)))
-

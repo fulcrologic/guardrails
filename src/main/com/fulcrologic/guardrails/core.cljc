@@ -31,20 +31,20 @@
 (def | :st)
 (def <- :gen)
 
-(def ^:private global-context (atom (list)))
+(defonce ^:private !global-context (atom (list)))
 
 (defn enter-global-context!
   "Push a global context, accessible from all threads, onto a stack. Used to add
   information to what guardrails will report when a function failed a check."
   [ctx]
-  (swap! global-context (partial cons ctx)))
+  (swap! !global-context (partial cons ctx)))
 
 (defn leave-global-context!
   "Pops a global context (see `enter-global-context!`). Should be passed the
   same context that was pushed, although is not enforced, as it's only to be
   easily compatible with fulcro-spec's hooks API."
   [ctx]
-  (swap! global-context rest))
+  (swap! !global-context rest))
 
 #?(:clj
    (defmacro with-global-context
@@ -52,12 +52,13 @@
       Will always call leave as it uses a try finally block.
       See `enter-global-context!`."
      [ctx & body]
-     `(do (enter-global-context! ~ctx)
-          (try ~@body
-               (finally
-                 (leave-global-context! ~ctx))))))
+     `(do
+        (enter-global-context! ~ctx)
+        (try ~@body
+          (finally
+            (leave-global-context! ~ctx))))))
 
-(defn- get-global-context [] (first @global-context))
+(defn- get-global-context [] (first @!global-context))
 
 
 (defonce pending-check-channel (async/chan (async/dropping-buffer 10000)))
@@ -87,12 +88,12 @@
 
 (def tap (resolve 'tap>))
 
-(defn humanize-spec [explain-data {:guardrails/keys [expound-options]}]
+(defn humanize-spec [explain-data expound-options]
   (with-out-str
     ((exp/custom-printer expound-options) explain-data)))
 
 (defn run-check [{:guardrails/keys [malli? validate-fn explain-fn humanize-fn]
-                  :keys            [tap>? args? vararg? expound-opts callsite throw? fn-name]}
+                  :keys            [tap>? args? vararg? humanize-opts callsite throw? fn-name]}
                  spec
                  value]
   (let [start           (now-ms)
@@ -111,7 +112,7 @@
     (try
       (when-not (validate-fn spec specable-args)
         (let [explain-data  (explain-fn spec specable-args)
-              explain-human (humanize-fn explain-data {:guardrails/expound-options expound-opts})
+              explain-human (humanize-fn explain-data humanize-opts)
               description   (str
                               "\n"
                               fn-name
@@ -333,6 +334,10 @@
 
 #?(:clj
    (defn- gspec->fspec*
+     "Generates a clojure.spec fspec or Malli schema from a spec-conformed
+     gspec. Output varies depending on whether the generated spec or schema is
+     meant for external consumption by clojure.spec or Malli tools, or for
+     internal checking with Guardrails."
      [{:com.fulcrologic.guardrails.core/keys
        [conformed-reg-args conformed-var-arg arg-syms clean-arg-vec]
        :as processed-args}
@@ -342,7 +347,7 @@
        :as opts}]
      (let [{argspec-def              :args
             retspec                  :ret
-            fn-such-that             :fn-such-that
+            ret-such-that            :fn-such-that
             {:keys [gen-fn] :as gen} :gen}
            conformed-gspec]
        ;; gnl: This functions as a graceful downgrade for some validation cases
@@ -372,7 +377,12 @@
                         ::malli?      malli?}))
                    spec))
 
-               arg-binding-destruct
+               ;; Destructuring vector for the function arguments with added
+               ;; bindings for anonymous destructurings (those without an `:as`
+               ;; attribute). The goal is to ensure that the argument and return
+               ;; such-that predicates defined below can directly reference all
+               ;; argument bindings
+               arg-destructuring
                (if (empty? clean-arg-vec)
                  (if malli? [] {})
                  (if (every? (fn [[type _arg]] (= type :sym))
@@ -388,19 +398,23 @@
                             arg-syms)
                        (into {})))))
 
+               ;; Process an argument predicate to make sure all direct
+               ;; references to the argument bindings are valid
                process-arg-pred
                (fn process-arg-pred [{:keys [name args body]}]
                  (let [bindings (if-let [anon-arg (some-> args :args first second)]
                                   (if malli?
-                                    (into arg-binding-destruct [:as anon-arg])
-                                    (assoc arg-binding-destruct :as anon-arg))
-                                  arg-binding-destruct)
+                                    (into arg-destructuring [:as anon-arg])
+                                    (assoc arg-destructuring :as anon-arg))
+                                  arg-destructuring)
                        function (remove nil? `(fn ~name [~bindings] ~body))]
                    (if malli?
                      [:fn function]
                      function)))
 
-               processed-args
+               ;; Argument spec, and-wrapped with all such-that predicates and
+               ;; ready to be used for validation
+               processed-arg-spec
                (if-not argspec-def
                  (if malli? `[:catn] `(s/cat))
                  (let [wrapped-params (as-> argspec-def __
@@ -438,24 +452,31 @@
                          (list* `s/and wrapped-params __)))
                      wrapped-params)))
 
+               ;; Making sure references to the argument bindings and return
+               ;; value in ret such-that predicates are legit
                process-ret-pred
                (fn process-ret-pred [{:keys [name args body]}]
                  (let [anon-arg       (some-> args :args first second)
                        ret-sym        (gensym "ret__")
                        bindings       [{(if multi-arity-args?
-                                          ['_ arg-binding-destruct]
-                                          arg-binding-destruct) :args
-                                        ret-sym                 :ret}]
+                                          ['_ arg-destructuring]
+                                          arg-destructuring) :args
+                                        ret-sym              :ret}]
                        processed-body (if anon-arg
                                         (walk/postwalk-replace {anon-arg ret-sym} body)
                                         body)]
                    (remove nil? `(fn ~name ~bindings ~processed-body))))
 
-               processed-fn-preds
-               (when fn-such-that
-                 (map process-ret-pred (:preds fn-such-that)))
+               processed-ret-preds
+               (when ret-such-that
+                 (map process-ret-pred (:preds ret-such-that)))
 
-               retify-fn-pred
+               ;; Guardrails checks arg and ret specs separately, so in order
+               ;; for the ret such-that predicates to be able to reference
+               ;; argument bindings, we have to close over those. Spec has
+               ;; separate :fn predicates for that and Malli doesn't do it at
+               ;; all.
+               closurify-ret-pred
                (fn [fn-pred]
                  (let [[pred-head [[orig-pred-params] & pred-bodies]]
                        (split-with (complement vector?) fn-pred)
@@ -471,36 +492,36 @@
                             ret-pred#  ~ret-pred]
                         (ret-pred# pred-args#)))))
 
-               ret+fn-preds
-               (when processed-fn-preds
-                 (cond->> (map retify-fn-pred processed-fn-preds)
+               closurified-ret-preds
+               (when processed-ret-preds
+                 (cond->> (map closurify-ret-pred processed-ret-preds)
                    malli? (map #(do `[:fn ~%]))))
 
                final-fspec
                (if malli?
                  (if (or external-consumption? anon-fspec?)
                    (vec (concat
-                          [:function]
-                          [[:=> processed-args (extract-spec retspec)]]))
+                          (when-not multi-arity-args? [:function])
+                          [[:=> processed-arg-spec (extract-spec retspec)]]))
                    (let [ret (extract-spec retspec)]
-                     {:args processed-args
-                      :ret  (if ret+fn-preds
-                              `[:and ~ret ~@ret+fn-preds]
+                     {:args processed-arg-spec
+                      :ret  (if closurified-ret-preds
+                              `[:and ~ret ~@closurified-ret-preds]
                               ret)}))
                  (if (or external-consumption? anon-fspec?)
                    (concat
                      (when anon-fspec? [`s/fspec])
-                     [:args processed-args]
+                     [:args processed-arg-spec]
                      [:ret (extract-spec retspec)]
-                     (when processed-fn-preds
-                       [:fn (if (next processed-fn-preds)
-                              (cons `s/and processed-fn-preds)
-                              (first processed-fn-preds))])
+                     (when processed-ret-preds
+                       [:fn (if (next processed-ret-preds)
+                              (cons `s/and processed-ret-preds)
+                              (first processed-ret-preds))])
                      (when gen-fn [:gen gen-fn]))
                    (let [ret (extract-spec retspec)]
-                     {:args processed-args
-                      :ret  (if ret+fn-preds
-                              `(s/and ~ret ~@ret+fn-preds)
+                     {:args processed-arg-spec
+                      :ret  (if closurified-ret-preds
+                              `(s/and ~ret ~@closurified-ret-preds)
                               ret)})))]
            (if nilable?
              (if malli?
@@ -518,6 +539,10 @@
                    [unformed malformed] (split-with (complement malformed-seq-destructuring?) unformed-arg)]
                (vec (concat unformed (apply concat malformed))))))
 
+         ;; We need to have unique names for all arguments for Guardrails
+         ;; checking and such-that predicates to work correctly, but with
+         ;; anonymous vector or map destructuring of arguments (without an `:as`
+         ;; attribute) we might not.
          process-arg
          (fn [index [arg-type arg]]
            (let [arg-prefix (format "arg%s_" (str (if (int? index)
@@ -586,6 +611,20 @@
                            (drop-while (complement #{part}))
                            second))]
      (defn- generate-external-fspec
+       "Generates function specs or schemas for external consumption by native
+       clojure.spec or Malli tools. Data specs for internal Guardrails checking
+       are different in that we have one argument and one return data spec for
+       each function arity.
+
+       Native function specs are in some ways more complex (they need to account
+       for multi-arity in a single branching spec, clojure.spec has :fn
+       predicates separate from the :ret predicates, etc.) and in other ways
+       simpler (Malli doesn't have proper predicate support in function schemas,
+       so we just drop those).
+
+       In any case, they are different enough that they require separate
+       handling, which is what we do here. You can macroexpand a `(>defn ...)`
+       for details."
        [conformed-fn-tail-or-tails malli?]
        (case (key conformed-fn-tail-or-tails)
          :arity-1
@@ -599,7 +638,7 @@
          (when (some :gspec (val conformed-fn-tail-or-tails))
            (if malli?
              (let [fspecs (map (partial get-fspecs true) (val conformed-fn-tail-or-tails))]
-               (mapcat second fspecs))
+               `[:function ~@(mapcat second fspecs)])
              (let [fspecs           (map (partial get-fspecs false) (val conformed-fn-tail-or-tails))
                    arg-specs        (mapcat (fn [[arity spec]]
                                               [arity (or (get-spec-part :args spec) `empty?)])
@@ -644,117 +683,6 @@
                           multi-ret-clause)])))))))))
 
 #?(:clj
-   (def ^:private spec-op->type
-     (let [map-prot     "cljs.core.IMap"
-           coll-prot    "cljs.core.ICollection"
-           ;; Needed because Closure compiler/JS doesn't consider strings seqable
-           seqable-prot "(cljs.core.ISeqable|string)"]
-       {'number?      "number"
-        'integer?     "number"
-        'int?         "number"
-        'nat-int?     "number"
-        'pos-int?     "number"
-        'neg-int?     "number"
-        'float?       "number"
-        'double?      "number"
-        'int-in       "number"
-        'double-in    "number"
-
-        'string?      "string"
-
-        'boolean?     "boolean"
-
-        'keys         map-prot
-        'map-of       map-prot
-        'map?         map-prot
-        'merge        map-prot
-
-        'set?         "cljs.core.ISet"
-        'vector?      "cljs.core.IVector"
-        'tuple        "cljs.core.IVector"
-        'seq?         "cljs.core.ISeq"
-        'seqable?     seqable-prot
-        'associative? "cljs.core.IAssociative"
-        'atom?        "cljs.core.IAtom"
-
-        'coll-of      coll-prot
-        'every        coll-prot
-
-        'keyword?     "cljs.core.Keyword"
-        'ifn?         "cljs.core.IFn"
-        'fn?          "Function"})))
-
-#?(:clj
-   (declare get-gspec-type))
-
-#?(:clj
-   (defn- get-type [recursive-call conformed-spec-elem]
-     (let [[spec-type spec-def] conformed-spec-elem
-           spec-op
-           ;; REVIEW: This kinda wants to be a multi-method when it grows up.
-           (case spec-type
-             :list (let [op (-> spec-def first name symbol)]
-                     (cond
-                       (#{'nilable '?} op) (concat (->> spec-def
-                                                     second
-                                                     (s/conform ::spec-elem)
-                                                     (get-type true))
-                                             [::nilable])
-                       (#{'* '+} op) (concat (->> spec-def
-                                               second
-                                               (s/conform ::spec-elem)
-                                               (get-type true))
-                                       [::variadic])
-                       (#{'and} op) [(-> spec-def second)]  ; TODO
-                       (#{'coll-of 'every} op) [(or (->> spec-def
-                                                      (drop-while (complement #{:kind}))
-                                                      second)
-                                                  op)]
-                       :else [op]))
-             ;;TODO support (some-fn and (s/or
-             :gspec (let [gspec-def (val spec-def)]
-                      (if (= (key spec-def) :nilable-gspec)
-                        [(get-gspec-type (:gspec gspec-def)) ::nilable]
-                        [(get-gspec-type gspec-def)]))
-             :pred-sym [spec-def]
-             [nil])]
-       (if recursive-call
-         spec-op
-         (if-let [js-type (spec-op->type (first spec-op))]
-           (let [modifiers (set (rest spec-op))]
-             (as-> js-type t
-               (str (if (::nilable modifiers) "?" "!") t)
-               (str (when (::variadic modifiers) "...") t)))
-           "*")))))
-
-#?(:clj
-   (defn- get-gspec-type [conformed-gspec]
-     (let [argspec-def (:args conformed-gspec)
-           args-jstype (if-not argspec-def
-                         ""
-                         (->> (-> conformed-gspec :args :args)
-                           (map (partial get-type false))
-                           (string/join ", ")))
-           ret-jstype  (get-type false (:ret conformed-gspec))]
-       (str "function(" args-jstype "): " ret-jstype))))
-
-#?(:clj
-   (defn- generate-type-annotations [env conformed-bs]
-     (when (cljs-env? env)
-       (case (key conformed-bs)
-         :arity-1 (when-let [gspec (-> conformed-bs val :gspec)]
-                    {:jsdoc [(str "@type {" (get-gspec-type gspec) "}")]})
-         ;; REVIEW: There doesn't seem to be a way to get valid annotations for args of
-         ;; multi-arity functions and attempts to just annotate the return value(s) failed
-         ;; as well. It wasn't possible to put together an annotation which was both
-         ;; considered valid and resulted in a successful type check.
-         :arity-n nil #_(when-let [ret-types (as-> (val conformed-bs) x
-                                               (map #(get-type false (-> % :gspec :ret)) x)
-                                               (distinct x)
-                                               (when (not-any? #{"*" "?"} x) x))]
-                          {:jsdoc [(str "@return {" (string/join "|" ret-types) "}")]})))))
-
-#?(:clj
    (defn generate-fdef
      [env forms]
      (let [{[type fn-name] :name bs :bs} (s/conform ::>fdef-args forms)]
@@ -785,7 +713,9 @@
        false)))
 
 #?(:clj
-   (defn- process-defn-body
+   (defn- process-defn-tail
+     "This does the top-level Guardrails procesing of function tails (args,
+     gspec, body) entirely unconcerned with function arity."
      [cfg fn-tail]
      (let [{:keys                                                      [env fn-name]
             {max-checks-per-second :guardrails/mcps
@@ -814,13 +744,14 @@
            where           (str file ":" line " " fn-name "'s")
            argspec         (gensym "argspec")
            nspc            (if cljs? (-> env :ns :name str) (name (ns-name *ns*)))
-           expound-opts    (get (gr.cfg/get-env-config) :expound {})
            opts            {:fn-name                where
                             :guardrails/malli?      malli?
                             :tap>?                  tap>?
                             :throw?                 throw?
                             :vararg?                (boolean conformed-var-arg)
-                            :expound-opts           expound-opts
+                            :humanize-opts          (if malli?
+                                                      (get (gr.cfg/get-env-config) :malli {})
+                                                      (get (gr.cfg/get-env-config) :expound {}))
                             :guardrails/validate-fn validate-fn
                             :guardrails/explain-fn  explain-fn
                             :guardrails/humanize-fn humanize-fn}
@@ -880,54 +811,56 @@
 #?(:clj
    (defn- generate-defn
      [forms private env]
-     (let [conformed-gdefn     (s/conform ::>defn-args forms)
-           conformed-fn-tails  (:bs conformed-gdefn)
-           arity               (key conformed-fn-tails)
-           fn-name             (:name conformed-gdefn)
-           docstring           (:docstring conformed-gdefn)
-           malli?              (:guardrails/malli? env)
-           raw-meta-map        (merge
-                                 (:meta conformed-gdefn)
-                                 {::guardrails true})
+     (let [conformed-gdefn    (s/conform ::>defn-args forms)
+           conformed-fn-tails (:bs conformed-gdefn)
+           arity              (key conformed-fn-tails)
+           fn-name            (:name conformed-gdefn)
+           docstring          (:docstring conformed-gdefn)
+           {:guardrails/keys [malli?]} env
+           raw-meta-map       (merge
+                                (:meta conformed-gdefn)
+                                {::guardrails true})
            ;;; Assemble the config
            {max-checks-per-second :guardrails/mcps
-            :keys                 [defn-macro] :as config} (gr.cfg/merge-config env (meta fn-name) raw-meta-map)
-           add-throttling?     (number? max-checks-per-second)
-           defn-sym            (cond defn-macro (with-meta (symbol defn-macro) {:private private})
-                                     private 'defn-
-                                     :else 'defn)
+            :keys                 [defn-macro] :as config}
+           (gr.cfg/merge-config env (meta fn-name) raw-meta-map)
+
+           add-throttling?    (number? max-checks-per-second)
+           defn-sym           (cond
+                                defn-macro (with-meta (symbol defn-macro) {:private private})
+                                private 'defn-
+                                :else 'defn)
            ;;; Code generation
-           external-fdef-body  (generate-external-fspec conformed-fn-tails malli?)
-           fdef                (when external-fdef-body
-                                 (if malli?
-                                   ;; REVIEW: Since we're already adding the
-                                   ;; Malli function schema to the metadata
-                                   ;; below, there's probably no need to define
-                                   ;; it here as well.
-                                   nil #_`(malli.core/=> ~fn-name [~@external-fdef-body])
-                                   `(s/fdef ~fn-name ~@external-fdef-body)))
-           meta-map            (merge
-                                 raw-meta-map
-                                 (when malli? {:malli/schema `[~@external-fdef-body]})
-                                 (when-not malli? (generate-type-annotations env conformed-fn-tails)))
-           processed-fn-bodies (let [process-cfg      {:env     env
-                                                       :config  config
-                                                       :fn-name fn-name}
-                                     fn-tail-or-tails (val conformed-fn-tails)]
-                                 (case arity
-                                   :arity-1 (process-defn-body process-cfg fn-tail-or-tails)
-                                   :arity-n (map (partial process-defn-body process-cfg) fn-tail-or-tails)))
-           main-defn           `(~@(remove nil? [defn-sym fn-name docstring meta-map])
-                                  ~@processed-fn-bodies)
-           throttle-decls      (if add-throttling?
-                                 `[~'__gr_vncalls (volatile! 0)
-                                   ~'__gr_vstart-time (volatile! 0)
-                                   ~'__gr_reset-stats-ns 5e9
-                                   ~'__gr_max-calls-per-ns (/ ~max-checks-per-second 9.0e8) ; fudge factor for nano timing inaccuracies
-                                   ~'__gr_actual-calls (volatile! 0)]
-                                 [])]
+           external-fdef-body (generate-external-fspec conformed-fn-tails malli?)
+           fdef               (when external-fdef-body
+                                (if malli?
+                                  ;; REVIEW: Since we're already adding the
+                                  ;; Malli function schema to the metadata
+                                  ;; below, there's probably no need to define
+                                  ;; it here as well.
+                                  nil #_`(malli.core/=> ~fn-name [~@external-fdef-body])
+                                  `(s/fdef ~fn-name ~@external-fdef-body)))
+           meta-map           (merge
+                                raw-meta-map
+                                (when malli? {:malli/schema `[~@external-fdef-body]}))
+           processed-fn-tails (let [process-cfg      {:env     env
+                                                      :config  config
+                                                      :fn-name fn-name}
+                                    fn-tail-or-tails (val conformed-fn-tails)]
+                                (case arity
+                                  :arity-1 (process-defn-tail process-cfg fn-tail-or-tails)
+                                  :arity-n (map (partial process-defn-tail process-cfg) fn-tail-or-tails)))
+           main-defn          `(~@(remove nil? [defn-sym fn-name docstring meta-map])
+                                 ~@processed-fn-tails)
+           throttle-decls     (if add-throttling?
+                                `[~'__gr_vncalls (volatile! 0)
+                                  ~'__gr_vstart-time (volatile! 0)
+                                  ~'__gr_reset-stats-ns 5e9
+                                  ~'__gr_max-calls-per-ns (/ ~max-checks-per-second 9.0e8) ; fudge factor for nano timing inaccuracies
+                                  ~'__gr_actual-calls (volatile! 0)]
+                                [])]
        `(let ~throttle-decls
-          ~@(remove nil? [fdef `(declare ~fn-name) main-defn])))))
+          ~@(remove nil? [fdef main-defn])))))
 
 #?(:clj
    ;;;; Main macros and public API
@@ -947,8 +880,9 @@
            async? (gr.cfg/async? cfg)]
        (cond
          (not cfg) (clean-defn 'defn body)
-         (#{:copilot :pro} mode) `(do (defn ~@body)
-                                      ~(gr.pro/>defn-impl env body opts))
+         (#{:copilot :pro} mode) `(do
+                                    (defn ~@body)
+                                    ~(gr.pro/>defn-impl env body opts))
          (#{:runtime :all} mode)
          (cond-> (remove nil? (generate-defn body private? (assoc env :form form :async-checks? async? :guardrails/malli? malli?)))
            (cljs-env? env) clj->cljs
