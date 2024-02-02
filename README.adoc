@@ -435,7 +435,7 @@ we measured the entire test suite runtime instead of the overhead of non-existen
 -----
 
 As you can see, the performance can be a literal drag on development, often leading people to strip out their checks,
-a think that I've had to do in my own libraries in the past because it hurt downstream users. No more! We have
+a thing that I've had to do in my own libraries in the past because it hurt downstream users. No more! We have
 was of making this better.
 
 [#check-throttling]
