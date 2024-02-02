@@ -7,37 +7,18 @@ Guardrails is intended to make it possible (and easy) to use specs as a loose bu
 so you can better see where you are making mistakes as you make them, without affecting _production_ build size
 or performance.
 
-== NEW in 1.1.0: Asynchronous Checking!
+== NEW in 1.2.0
 
-Guardrails can now have a *much* smaller impact on your dev-time performance!
+Version 1.2 adds some exciting new features!
 
-I realized that most of the time in dev mode you're just running bits of code here and there in fits and starts.
-Most people rarely run super high numbers of iterations without some kind of pause. Even then: if you're running
-such a computation there is still a high probability that you'll see problems even if some of the checks are silently
-dropped.
-
-As a result, guardrails now has an asynchronous checking mode (which mainly benefits Clojure)!
-
-When this mode is enabled it pushes spec checking into a `core.async` channel with a dropping buffer (size 10,000). The overhead
-for the `put` is just a few microseconds. This allows an alternate thread to run the checks, and as long as you
-don't have large sustained computations this can give you nearly full-production performance of your code, while
-an alternate core in your computer handles the checks.
-
-Benefits:
-
-* Much faster dev performance (Clojure only. The option works in CLJS, but there's not a second thread so there is
-no benefit).
-* High performance algorithms can use guardrails with a tolerable cost.
-
-Costs:
-
-* Checking results are queued. If a lot of slow checks get in the queue you might have to wait some time before
-you see the problems. This could cause confusion (you might be running your next expression in the REPL and see an error from the
-prior one).
-* Not all checks will run in a CPU-intensive task that queues checks rapidly.
-* Async mode is incompatible with the `:throw? true` option.
-
-To enable the async mode, just add `:async? true` in your `guardrails.edn` file.
+* Use https://github.com/metosin/malli[Malli] as your <<malli-support,function specification language>>.  You can even mix-and-match
+  Clojure Spec and Malli in the same project/namespace.
+* <<check-throttling, Runtime Check Throttling>>: The ability to limit the number of times per second that checks
+are applied at a namespace, function, or even globally.
+* <<static-exclusions, Library exclusions>>: The ability of library authors to auto-exclude internal implementation
+functions from checks when used by downstream users.
+* <<dynamic-exclusions, Dynamic exclusions>>: The ability for users to add/remove namespaces and functions from active
+runtime checks (including those excluded by library authors)
 
 == Quick Start
 
@@ -240,8 +221,6 @@ and supply a lambda that uses the symbol names from the argument list (and `%` f
   ...)
 -----
 
-WARNING: Return value such-that clauses are syntactically supported, but are not currently checked.
-
 === Nilable
 
 The `?` macro can be used as a shorthand for `s/nilable`:
@@ -303,7 +282,81 @@ of evaluating the gspec vector as the first body form aside, nothing will break 
 
 Credit: The above documentation was largely taken from https://github.com/gnl/ghostwheel#the-gspec-syntax[Ghostwheel's documentation].
 
-== Enabling
+[#malli-support]
+== Malli Support
+
+Version 1.2.0 includes support for Malli. This is useful if you use Malli for data validation, so that you don't have
+to maintain both a spec-based set of schema for guardrails, and a malli-based one for data. The data you use in your
+functions, after all, is the same data!
+
+All you have to do to use it is change your require statement. In fact, you can alias BOTH spec-based and malli-based
+guardrails in the same namespace, just make sure you use the right kind of schema with the corresponding function!
+The specials (`=>`, `|`, and `?` can come from either. They are purely symbolic).
+
+[source]
+-----
+(ns foo.bar
+  (:require
+    [clojure.spec.alpha :as s]
+    [com.fulcrologic.guardrails.core :as gr.spec]
+    [com.fulcrologic.guardrails.malli.core :as gr.malli :refer [=> | ?]))
+
+(gr.spec/>defn f [x]
+  [(s/keys :req [:thing/x]) => int?]
+  ...)
+
+(gr.malli/>defn f [x]
+  [[:map :thing/x] => :int]
+  ...)
+-----
+
+All configuration options apply to both variants (max checks per second, throw configuration, etc.). Other than the
+items used *within* the gspec, they are identical.
+
+=== The Guardrails Malli Registry
+
+Clojure Spec forces you to use a shared global registry, and carefully ensure that your keywords are qualified and
+do not collide with others.
+
+Malli *has* a default registry, but it is not mutable. This allows you to pick registries as you want, and allows for
+more lenient use of "poor" naming because the threat of collision is reduced; however, it makes for writing schemas
+a lot more tedious:
+
+[source]
+-----
+(>defn f [x]
+  [[:map {:registry my-reg} ...
+-----
+
+Fortunately, Malli supports mutable registries, so we can provide
+the convenience of a global registry and dramtically reduce the boilerplate.
+
+The Guardrails registry *starts* with the exact content of the default Malli registry.
+
+The `com.fulcrologic.guardrails.malli.registry` namespace holds the Guardrails mutable registry, and it includes functions that
+you can use to directly add any of your schema into it. You'll need to do this for any qualified keywords you want
+to be able to use in `>defn`s that leverage Malli. For example you can merge in some other maps of schemas with:
+
+[source]
+-----
+(gr.reg/merge-schemas! my-custom-stuff my-other-stuff)
+-----
+
+The `com.fulcrologic.guardrails.malli.core` namespace also has a convenient `>def` that is like the Clojure Spec `def`, in that
+it will register a schema under a qualified keyword for you:
+
+[source]
+-----
+(>def :member/name :string)
+-----
+
+== Configuration
+
+=== Enabling
+
+Guardrails, by default, emits *exactly* what a plain `defn` would unless you turn it on. This is done via a JVM
+option. We choose this path because it is highly effective at preventing accidentally enabling guardrails in
+production, which could cause huge performance impacts.
 
 The JVM option `-Dguardrails.enabled=true` should be used to turn on
 guardrails. When not defined `>defn` will emit exactly what `defn` would.
@@ -311,7 +364,7 @@ guardrails. When not defined `>defn` will emit exactly what `defn` would.
 You may also enable it in cljs in your shadow-cljs config
 (see Configuration...adding even an empty config map will enable it).
 
-== Configuration
+=== The Configuration File
 
 The default config goes in top of project as `guardrails.edn`:
 
@@ -327,6 +380,10 @@ The default config goes in top of project as `guardrails.edn`:
 
  ;; Check specs in parallel (CLJ only)
  :async? true
+
+ ;; (optional, not recommended globally) GLOBALLY enable non-exhaustive checking. Limit each function such that no more than
+ ;;this number of checks will happen per second.
+ :guardrails/mcps 100
 
  ;; should a spec failure on args or ret throw an execption?
  ;; (always logs an informative message)
@@ -347,9 +404,167 @@ config path of a build:
      :app  {:target            :browser
             :dev               {:compiler-options
                                 {:external-config {:guardrails {:throw? false}}
-                                 :closure-defines {'goog.DEBUG true}}}
+                                 :closure-defines {'goog.DEBUG true}}}}
 ...
 -----
+
+== Performance
+
+Guardrails adds an overhead that is roughly the cost of running a Clojure spec or Malli validation. On an Apple M1 Max,
+the average check on a general code base (tested against https://github.com/fulcrologic/statecharts) takes around
+11 microseconds. This actually tested out to roughly the same for Malli AND Spec, though we did find cases where
+Malli was roughly 2x faster. We did not do further deep analysis.
+
+[source]
+-----
+    nCalls        Max       Mean   MAD      Clock  Total
+   174,586    14.72ms    11.44μs  ±78%     2.00s     91%
+-----
+(measured using https://github.com/taoensso/tufte[Tufte])
+
+As you can see, if you instrument a lot of your functions, the number of calls can add up quickly (this result was from
+running 8 tests). So, even though the runtime checks are only taking microseconds, the overall effect can be dramatic.
+
+Here's how fast those tests are when we turn off guardrails altogether (one call, because
+we measured the entire test suite runtime instead of the overhead of non-existent runtime checks):
+
+[source]
+-----
+     nCalls        Max       Mean   MAD      Clock  Total
+          1    72.38ms    72.38ms   ±0%    72.38ms   100%
+-----
+
+As you can see, the performance can be a literal drag on development, often leading people to strip out their checks,
+a think that I've had to do in my own libraries in the past because it hurt downstream users. No more! We have
+was of making this better.
+
+[#check-throttling]
+=== Tuning Max Checks Per Second
+
+In version 1.2.0 and above you can tune guardrails to limit the number of times a function is checked per second. This
+can have a huge performance benefit for functions that are called in loops and possibly have complex and expensive checks.
+The tuning can be done globally, by namespace, or even by function.
+
+The setting is `:guardrails/mcps`, and is an integer. You can place this in the global config, the metadata of
+a namespace, or in the attribute map of the `>defn`. For example:
+
+[source]
+-----
+(>defn f
+  {:guardrails/mcps 100}
+  [x]
+  [int? => int?]
+  ...)
+-----
+
+The performance boost from this setting can be dramatic. The Fulcrologic Statecharts library uses guardrails extensively
+internally, and without this option some state changes can take human-perceptible amounts of time (like seconds). With
+this setting applied the performance returns to a level that is unnoticeable. Measurements on this library indicate
+that each *check* takes around 20 microseconds, but the overhead of the max-calls-per-second is only 20 or so
+nanoseconds (on an M1 Max Mac Studio). So, when a calculation ends up causing 100k+ checks (remember there is a check
+for each arg, and one for return) the effect can be dramatic. Turning on this throttle makes things run literally 1000x
+faster.
+
+Here's that same set of 8 tests we showed earlier, but with `mcps` set to 100 reduces the guardrails overhead to
+a few milliseconds! In other words, the non-exhaustive checking makes it appear as if guardrails isn't even there. This
+is because it is common to have just a handful of heavily called functions, so dropping each of their check count to 100
+means that you're more likely to run a few thousand total checks instead.
+
+Of course, the downside is that you are no longer getting rigorous data flow checking, but for functions that
+are called heavily this is quite a good trade-off, since the probability of detecting some kind of problem can
+be tuned as you see fit.
+
+The throttling always checks the "leading edge". From there it tracks a counter, and uses the high resolution timer to
+calculate the current number of checks per second that have been done. If that is over your limit then the check is skipped
+(and the time will change, but not the check count), so after enough time has elapsed, more checks will happen. This has
+the tendency to "spread out" the checks over time, but of course even high resolution timers are going to give you a lot
+of jitter at a high call frequency.
+
+[#dynamic-exclusions]
+=== Dynamic Exclusions
+
+Version 1.2.0 also includes the ability to turn checks completely on or off, including at runtime, on a wide or granular level,
+such as a namespace or even a function both in CLJ and CLJS. The functions for controlling this are
+in `com.fulcrologic.guardrails.config`:
+
+* `(config/exclude-checks! ns-or-fn)` - Turns off checking for an entire ns, or just a single fully-qualified symbol.
+* `(config/allow-checks! ns-or-fn)` - Turns on checking for an entire ns, or just a single fully-qualified symbol.
+* `(config/excluded? ns-or-fn)` - Indicate if the given (entire ns) or fn (qualified symbol) is excluded from checks.
+* `(config/clear-exclusions!)` - Make everything, even in libraries that export exclusions, run checks. See next section.
+* `(config/reset-exclusions!)` - Re-apply any library exclusion exports (resets exclusions to what they were at startup). See next section.
+
+[#static-exclusions]
+=== Static Exclusions (Special Attention Library Authors)
+
+Most libraries have a main surface API, and then a bunch of internal functions. It is useful to instrument these
+all with Guardrails in order to get the benefits of documentation, validation during development, and verification
+while testing.
+
+Unfortunately, this can have a huge downstream impact on consumers of your library that also use Guardrails. It makes
+sense that a library author should indicate which functions comprise the *public* API (and should be checked
+by downstream users) and which are considered more *internal* and should only be checked when the author
+is working on the library itself.
+
+Library authors (and application authors as well) can include a file at the top level of their classpath
+(e.g. src or resources folder, usually) with the special name `guardrails-export.edn` which contains a config
+map that can exclude a set of namespaces from ALL checks. The functions in those namespaces run a check on a volatile,
+so disabling checks returns functions to pretty much full (no guardrails used at all) performance.
+
+For example, `src/main/guardrails-export.edn` in the
+https://github.com/fulcrologic/statecharts[Fulcrologic statecharts library] looks something like this:
+
+[source]
+-----
+{:exclude #{com.fulcrologic.statecharts.algorithms.v20150901-impl}}
+-----
+
+Remember, this goes in a *specially-named* file, *not* in the primary guardrails configuration file, since these
+are meant to be seen by downstream consumers (like data_readers.clj).
+
+A quick implementation note: In order to make this work in Clojurescript a macro must run that can read the JVM classpath,
+and compile all the exclusions found in on-disk (and in JAR files) into a runtime set. The same happens in Clojure
+(though in CLJ you can read the fs again at any time).
+
+The set of exclusions found in export files at load time is what `reset-exclusions!` will restore if you have
+dynamically changed the exclusions at runtime. Basically this load-time set is kept in a var for exactly this reason
+since CLJS cannot re-trigger a classpath scan.
+
+NOTE: As a library *author* these exclusions will end up applying to your code
+as well, since it is difficult to tell which export file belongs to which project on the classpath. Thus
+the beginning of your test namespaces (and possibly your non-published user ns) should all start with a
+call to `config/clear-exclusions!` if you want to include your implementation checks while running your tests
+and working on your library code.
+
+=== Async Mode for Clojure (not useful in CLJS)
+
+NOTE: This is an older attempt at helping performance, and it is moderately helpful when you want exhaustive checking
+in Clojure. In general, you should instead prefer the use of exclusions or the max checks per second
+setting at the namespace, function, or even project level.
+
+Guardrails has an asynchronous checking mode (which mainly benefits Clojure).
+
+When this mode is enabled it pushes spec checking into a `core.async` channel with a dropping buffer (size 10,000). The overhead
+for the `put` is just a few microseconds. This allows an alternate thread to run the checks, and as long as you
+don't have large sustained computations this can give you nearly full-production performance of your code, while
+an alternate core in your computer handles the checks.
+
+Benefits:
+
+* Much faster dev performance (Clojure only. The option works in CLJS, but there's not a second thread so there is
+no benefit).
+* High performance algorithms can use guardrails with a tolerable cost.
+
+Costs:
+
+* Checking results are queued. If a lot of slow checks get in the queue you might have to wait some time before
+you see the problems. This could cause confusion (you might be running your next expression in the REPL and see an error from the
+prior one).
+* Not all checks will run in a CPU-intensive task that queues checks rapidly.
+* Async mode is incompatible with the `:throw? true` option.
+
+To enable the async mode, just add `:async? true` in your `guardrails.edn` file.
+
+This mode does not benefit clojurescript because there *is no* alternate thread to push the checks to.
 
 == Copyright and License
 
