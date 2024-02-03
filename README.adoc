@@ -1,20 +1,40 @@
+:sectanchors:
+ifdef::env-github,env-cljdoc[]
+:tip-caption: :bulb:
+:note-caption: :information_source:
+:important-caption: :heavy_exclamation_mark:
+:caution-caption: :fire:
+:warning-caption: :warning:
+endif::[]
+
 = Guardrails
 
 image:https://img.shields.io/clojars/v/com.fulcrologic/guardrails.svg[link=https://clojars.org/com.fulcrologic/guardrails]
 image:https://circleci.com/gh/fulcrologic/guardrails/tree/master.svg?style=svg["CircleCI", link="https://circleci.com/gh/fulcrologic/guardrails/tree/master"]
 
-Guardrails is intended to make it possible (and easy) to use specs as a loose but informative (even advisory) type system during development
-so you can better see where you are making mistakes as you make them, without affecting _production_ build size
-or performance.
+Efficient, hassle-free function call validation with a concise inline syntax for clojure.spec and Malli:
+
+[source, clojure]
+----
+(>defn ranged-rand
+  [start end]
+  [int? int? | #(< start end)            ; `|` = such that
+   => int? | #(>= % start) #(< % end)]
+  (+ start (long (rand (- end start)))))
+----
+
+Guardrails is intended to make it possible (and easy) to use specs/schemas as a loose but informative (even advisory) type system during development
+so you can better see where you are making mistakes as you make them, with zero impact on _production_ build size or performance and minimal impact during development.
 
 == NEW in 1.2.0
 
-Version 1.2 adds some exciting new features!
+Version 1.2 adds some exciting new features:
 
-* Use https://github.com/metosin/malli[Malli] as your <<malli-support,function specification language>>. You can even mix-and-match Clojure Spec and Malli in the same project/namespace.
+* Use https://github.com/metosin/malli[Malli] as your <<malli-support,data specification language>>. You can even mix-and-match Clojure Spec and Malli in the same project/namespace.
 * <<check-throttling, Runtime Check Throttling>>: Limit the number of times per second that checks are applied at the namespace, function, or global level.
 * <<static-exclusions, Library exclusions>>: Library authors can auto-exclude internal implementation functions from checks when used in dependent projects downstream.
 * <<dynamic-exclusions, Dynamic exclusions>>: Users can disable and enable active checking for any namespace or function at runtime (including overriding library authors' exclusions)
+* <<Such That, Such-that predicates on the return value>>: Full support for checking such-that predicates on a function's output with the ability to reference any input arguments in both clojure.spec and Malli
 
 == Quick Start
 
@@ -46,7 +66,7 @@ And code as follows:
     (inc i)))
 -----
 
-then when the function is misused you'll at least get a log error:
+When the function is misused you'll get an error:
 
 [source, bash]
 -----
@@ -73,6 +93,9 @@ or
 
 You can control if spec failures are advisory or fatal by editing `guardrails.edn` and setting the `:throw?` option. See
 <<Configuration>> for more details.
+
+Make sure to set your editor or IDE to resolve Guardrails' `>defn` and `>fdef` as Clojure's `defn`, and `>defn-` as `defn-` respectively – this way you get proper highlighting, formatting, error handling, structural navigation, symbol resolution, and refactoring support. A linting configuration for clj-kondo is included and should work out of the box.
+
 
 == Clojurescript Considerations
 
@@ -128,44 +151,12 @@ for your inclusions of spec namespaces.
 
 See https://github.com/fulcrologic/guardrails/blob/develop/src/main/com/fulcrologic/guardrails/noop.cljc[noop.cljc].
 
-== Why?
-
-Clojure spec's instrument (and Orchestra's outstrument) have a number of disadvantages when trying to use them for
-this purpose. Specifically, they are side-effecting after-calls that do not play particularly well with hot code reload,
-and always throw when there is a failed spec.  Furthermore, management of the accidental inclusion of specs in your cljs
-builds (which increase build size) is a constant pain when writing separate specs for functions (the specs end up in
-a whole other file, inclusion needs to be via a development ns, and things easily get out of date).
-
-This library is a middle ground between the features of raw Clojure spec and George Lipov's Ghostwheel.
-Much of the source code in this library is directly from https://github.com/gnl/ghostwheel[Ghostwheel].
-
-This library's goals are:
-
-- The ability to use a simple DSL to declare the spec with a function (taken from Ghostwheel). See that library's docs
-for *syntax* of `>defn`, `>defn`, etc.
-- The ability to support dead-code elimination in cljs.
-- No reliance on generative testing facilities/checkers. No orchestra/instrument stuff.
-- Good output when a function receives or emits an incorrect value.
-- The ability to control if a spec failure causes a throw (instrument always throws), because a lot of the time
-during development your spec is just wrong, and crashing your program is very inconvenient. You just want a log message
-to make you aware.
-
-without the extra overhead of Ghostwheel's support for:
-
-* Automatic generative testing stuff.
-* Tracing.
-* Side-effect detection/warning.
-
 [[gspec-syntax]]
 == The Gspec Syntax
 
-`[arg-specs* (| arg-preds+)? \=> ret-spec (| fn-preds+)? (\<- generator-fn)?]`
+`[arg-specs* (| arg-preds+)? \=> ret-spec (| ret-preds+)? (\<- generator-fn)?]`
 
-`|` = `:st` – such that +
-`\=>` = `:ret` – return value, same as in fspec +
-
-NOTE: Throughout this guide the symbolic gspec operators `\=>` and `|` will be used instead of the equivalent
-keyword-based `:ret` and `:st`. The two sets are perfectly interchangeable and can even be freely mixed within the same gspec.
+`|` : such that
 
 The number of `arg-specs` must match the number of function arguments, including a possible variadic argument – Guardrails will shout at you if it doesn't.
 
@@ -199,14 +190,14 @@ Write the function as normal, and put a gspec after the argument list:
 --
 The `arg-preds`, if defined, are `s/and`-wrapped together with the `arg-specs` when desugared.
 
-The `fn-preds` are equivalent to (and desugar to) spec's `:fn` predicates, except that the anonymous function parameter
+The `ret-preds` are equivalent to (and desugar to) spec's `:fn` predicates, except that the anonymous function parameter
 is the ret, and the args are referenced using their symbols. That's because in the gspec syntax spec's `:fn` is simply
 considered a 'such that' clause on the ret.
 --
 
 === Such That
 
-To add an additional condition add `|` after either the argument specs (just before `=>`) or return value spec
+To add an additional condition add `|` after either the argument specs (just before `\=>`) or return value spec
 and supply a lambda that uses the symbol names from the argument list (and `%` for return value).
 
 [source, clojure]
@@ -216,6 +207,23 @@ and supply a lambda that uses the symbol names from the argument list (and `%` f
   [int? | #(< 0 i 10) => int? | #(pos-int? %)]
   ...)
 -----
+
+[NOTE]
+--
+The gspec syntax has a number of advantages:
+
+- It's much more concise and easier to write and read.
+- It's inline, so you can see at a glance what kind of data a function expects and returns right under the
+docstring and arg list, for example when previewing the function definition in your editor.
+- It can be elided to have zero impact on build by an external control (config file/JVM parameter).
+- Renaming/refactoring parameters is a breeze – just use your IDE's symbol rename functionality and all references in
+the predicate functions will be handled correctly, because `>defn` syntax is valid `defn` syntax.
++
+From the point of view of the programmer and the editor, the function arguments are bound to their respective symbols and can be freely referenced in any expression as expected, including the gspec which is considered just another body form.
+- For the same reason, you can reliably bypass Guardrails temporarily by simply changing `>defn` to `defn` - the minimal performance impact
+of evaluating the gspec vector as the first body form aside, nothing will break.
+--
+
 
 === Nilable
 
@@ -250,9 +258,9 @@ In the rare cases when a nilable gspec is needed `?` is put in a vector rather t
   [atom? [? [any? => any?]] => any?])
 -----
 
-TIP: For nested gspecs there's no way to reference the args in the `arg-preds` or `fn-preds` by symbol. The recommended
+TIP: For nested gspecs there's no way to reference the args in the `arg-preds` or `ret-preds` by symbol. The recommended
 approach here is to register the required gspec separately by using `>fdef` with a keyword.
-//You can do it with `#(\-> % :arg1)` in the `arg-preds`, but that won't work in the `fn-preds` and it's quite messy anyway. You could theoretically use a nested `(s/fspec ...)` instead of a gspec, but that gets unwieldy quick.
+//You can do it with `#(\-> % :arg1)` in the `arg-preds`, but that won't work in the `ret-preds` and it's quite messy anyway. You could theoretically use a nested `(s/fspec ...)` instead of a gspec, but that gets unwieldy quick.
 
 NOTE: Nested gspecs with one or more `any?` argspecs desugar to `ifn?`, so as not to mess up generative testing. This
 can be overridden by passing a generator – even an empty one, that is simply adding `\<-` or `:gen` to the gspec – in which case the gspec will desugar exactly as specified.
@@ -261,20 +269,6 @@ The assumption here is that `any?` does not imply that the function can in fact 
 {zwsp}
 You should still write out nested gspecs, even if they are as simple as `[any? \=> any?]` – this is useful as succinct
 documentation that this particular function receives exactly one argument.
-
-[NOTE]
---
-The gspec syntax has a number of advantages:
-
-- It's much more concise and easier to write and read.
-- It's inline, so you can see at a glance what kind of data a function expects and returns right under the
-docstring and arg list, for example when previewing the function definition in your editor.
-- It can be elided to have zero impact on build by an external control (config file/JVM parameter).
-- Renaming/refactoring parameters is a breeze – just use your IDE's symbol rename functionality and all references in
-the predicate functions will be handled correctly.
-- You can reliably bypass Guardrails temporarily by simply changing `>defn` to `defn` - the minimal performance impact
-of evaluating the gspec vector as the first body form aside, nothing will break because `>defn` syntax is valid `defn` syntax.
---
 
 Credit: The above documentation was largely taken from https://github.com/gnl/ghostwheel#the-gspec-syntax[Ghostwheel's documentation].
 
@@ -285,9 +279,9 @@ Version 1.2.0 includes full support for Malli. If you use the latter for data va
 
 All you have to do to use it instead of spec is change your require statement. In fact, you can alias BOTH spec-based and malli-based Guardrails in the same namespace – just make sure you use the right kind of schema with the corresponding function!
 
-The special operators `=>`, `|`, and `?` can come from either implementation, as they are purely symbolic.
+The special operators `\=>`, `|`, and `?` can come from either implementation, as they are purely symbolic.
 
-[source]
+[source, clojure]
 -----
 (ns foo.bar
   (:require
@@ -312,7 +306,7 @@ Clojure Spec forces you to use a shared global registry, and carefully ensure th
 
 Malli does have a default registry, but it is not mutable. This lets you to pick registries at will, and allows for more lenient use of "poor" naming because the threat of collision is reduced; however, it makes the writing of function schemas a lot more tedious:
 
-[source]
+[source, clojure]
 -----
 (>defn f [x]
   [[:map {:registry my-reg} ...
@@ -322,14 +316,14 @@ Fortunately, Malli supports mutable registries, so we can provide the convenienc
 
 The mutable Guardrails registry is initiated with the exact content of the default Malli registry, and is held in the `com.fulcrologic.guardrails.malli.registry` namespace, which also includes functions that you can use to directly add your own schema to it. You'll need to do this for any qualified keywords you want to use in `>defn`s that leverage Malli. For example you can merge in some other schema maps with:
 
-[source]
+[source, clojure]
 -----
 (gr.reg/merge-schemas! my-custom-stuff my-other-stuff)
 -----
 
 The `com.fulcrologic.guardrails.malli.core` namespace also has a convenient `>def` that is like the Clojure Spec `def`, in that it will register a schema under a qualified keyword for you:
 
-[source]
+[source, clojure]
 -----
 (>def :member/name :string)
 -----
@@ -376,7 +370,7 @@ The default config goes in the root of the project as `guardrails.edn`:
  ;; call will be checked.
  :guardrails/mcps 100
 
- ;; should a spec failure on args or ret throw an execption?
+ ;; should a spec failure on args or ret throw an exception?
  ;; (always logs an informative message)
  :throw?     false
 
@@ -431,7 +425,7 @@ In version 1.2.0 and above you can tune Guardrails to limit the number of times 
 
 The limit can be applied globally, to a namespace, or even to a function (recommended), by setting `:guardrails/mcps` to an integer. Like most other options, you can place it in the global `guardrails.edn`, the compiler config, the metadata of a namespace, or in the attribute map of a `>defn`. For example:
 
-[source]
+[source, clojure]
 -----
 (>defn f
   {:guardrails/mcps 100}
@@ -470,7 +464,7 @@ Library authors (and application authors as well) can include a file at the top 
 
 For example, `src/main/guardrails-export.edn` in the https://github.com/fulcrologic/statecharts[Fulcrologic statecharts library] looks something like this:
 
-[source]
+[source, clojure]
 -----
 {:exclude #{com.fulcrologic.statecharts.algorithms.v20150901-impl}}
 -----
@@ -505,6 +499,36 @@ Costs:
 To enable the async mode, just add `:async? true` in your `guardrails.edn` file.
 
 This mode does not benefit clojurescript because there *is no* alternate thread to push the checks to.
+
+
+== Why?
+
+Clojure spec's instrument (and Orchestra's outstrument) have a number of disadvantages when trying to use them for
+this purpose. Specifically, they are side-effecting after-calls that do not play particularly well with hot code reload,
+and always throw when there is a failed spec.  Furthermore, management of the accidental inclusion of specs in your cljs
+builds (which increase build size) is a constant pain when writing separate specs for functions (the specs end up in
+a whole other file, inclusion needs to be via a development ns, and things easily get out of date).
+
+This library is a middle ground between the features of raw Clojure spec and George Lipov's Ghostwheel.
+Much of the source code in this library is directly from https://github.com/gnl/ghostwheel[Ghostwheel].
+
+This library's goals are:
+
+- The ability to use a simple DSL to declare the spec with a function (taken from Ghostwheel). See that library's docs
+for *syntax* of `>defn`, `>defn`, etc.
+- The ability to support dead-code elimination in cljs.
+- No reliance on generative testing facilities/checkers. No orchestra/instrument stuff.
+- Good output when a function receives or emits an incorrect value.
+- The ability to control if a spec failure causes a throw (instrument always throws), because a lot of the time
+during development your spec is just wrong, and crashing your program is very inconvenient. You just want a log message
+to make you aware.
+
+without the extra overhead of Ghostwheel's support for:
+
+* Automatic generative testing stuff.
+* Tracing.
+* Side-effect detection/warning.
+
 
 == Copyright and License
 
