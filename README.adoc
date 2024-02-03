@@ -10,7 +10,7 @@ endif::[]
 = Guardrails
 
 image:https://img.shields.io/clojars/v/com.fulcrologic/guardrails.svg[link=https://clojars.org/com.fulcrologic/guardrails]
-image:https://circleci.com/gh/fulcrologic/guardrails/tree/master.svg?style=svg["CircleCI", link="https://circleci.com/gh/fulcrologic/guardrails/tree/master"]
+image:https://circleci.com/gh/fulcrologic/guardrails/tree/main.svg?style=svg["CircleCI", link="https://circleci.com/gh/fulcrologic/guardrails/tree/main"]
 
 Efficient, hassle-free function call validation with a concise inline syntax for clojure.spec and Malli:
 
