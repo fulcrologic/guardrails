@@ -161,8 +161,7 @@
                              (when (and async? throw?)
                                (utils/report-problem "INCOMPATIBLE MODES: :throw? and :async? cannot both be true. Disabling async."))
                              (utils/report-info (str "Mode: " (mode result) (when (= :runtime (mode result))
-                                                                              (str "  Async? " (boolean (:async? result))
-                                                                                "  Throw? " (boolean (:throw? result))))))
+                                                                              (str "  config: " result))))
                              (utils/report-info (str "Guardrails was enabled because "
                                                   (if cljs-compiler-config
                                                     "the CLJS Compiler config enabled it"
