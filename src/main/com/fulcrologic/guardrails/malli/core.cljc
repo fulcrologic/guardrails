@@ -2,15 +2,15 @@
   #?(:cljs (:require-macros com.fulcrologic.guardrails.malli.core))
   (:require
     [com.fulcrologic.guardrails.malli.registry :as gr.reg :refer [register!]]
-    #?@(:clj [[clojure.string :as string]
+    #?@(:clj [[clojure.spec.alpha :as s]
               [com.fulcrologic.guardrails.config :as gr.cfg]
               [com.fulcrologic.guardrails.impl.pro :as gr.pro]
-              [com.fulcrologic.guardrails.utils :as utils]
-              [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs strip-colors]]])
-    [clojure.spec.alpha :as s]
+              [com.fulcrologic.guardrails.utils :as utils :refer [cljs-env? clj->cljs]]])
+    [clojure.string :as str]
     [com.fulcrologic.guardrails.core :as gr.core]
     [malli.core :as m]
     [malli.dev.pretty :as mp]
+    [malli.dev.virhe :as v]
     [malli.error :as me]
     [malli.registry]))
 
@@ -30,7 +30,7 @@
        (s/or
          :pred-sym (s/and symbol?
                      (complement #{'| '=>})
-                     #(string/ends-with? (str %) "?"))
+                     #(str/ends-with? (str %) "?"))
          :gspec (s/or :nilable-gspec ::gr.core/nilable-gspec :gspec ::gr.core/gspec)
          :spec-key qualified-keyword?
          :malli-key (s/and simple-keyword? (complement #{:st :ret :gen}))
@@ -49,7 +49,7 @@
        :pred-sym (s/and symbol?
                    (complement #{'| '=>})
                    ;; REVIEW: should the `?` be a requirement?
-                   #(string/ends-with? (str %) "?"))
+                   #(str/ends-with? (str %) "?"))
        :gspec (s/or :nilable-gspec ::gr.core/nilable-gspec :gspec ::gr.core/gspec)
        :spec-key qualified-keyword?
        :malli-key (s/and simple-keyword? (complement #{:st :gen :ret}))
@@ -67,7 +67,7 @@
        (cljs-env? &env) clj->cljs)))
 
 
-(def ^:dynamic *coll-check-limit* s/*coll-check-limit*)
+(def ^:dynamic *coll-check-limit* #?(:clj s/*coll-check-limit* :cljs 4))
 
 #?(:clj
    (defmacro every
@@ -88,14 +88,65 @@
        (when (and cfg (#{:runtime :all} mode))
          `(register! ~k ~v)))))
 
-(defn validate [schema value] (m/validate schema value {:registry gr.reg/registry}))
-(defn explain [schema value] (malli.core/explain schema value {:registry gr.reg/registry}))
-(defn humanize-schema [data opts] (with-out-str
-                                    ((mp/prettifier
-                                       ::m/explain
-                                       "Validation Error"
-                                       #(me/with-error-messages data)
-                                       (merge opts {:registry gr.reg/registry})))))
+(let [get-validator (memoize (fn [s] (m/validator s {:registry gr.reg/registry})))]
+  (defn validate [schema value]
+    (let [v? (get-validator schema)]
+      (v? value))))
+
+(let [get-explainer (memoize (fn [s] (m/explainer s {:registry gr.reg/registry})))]
+  (defn explain [schema value]
+    (let [exp (get-explainer schema)]
+      (exp value))))
+
+(defn -block [text body printer]
+  [:group (v/-text text printer) [:align 2 body]])
+
+(defn -exception-doc [e printer]
+  (let [{:keys [type data]} (ex-data e)
+        {:keys [body] :or {title (:title printer)}} (v/-format type (ex-message e) data printer)]
+    [:group body]))
+
+(defn reporter
+  ([] (reporter (mp/-printer)))
+  ([printer]
+   (fn [type data]
+     (-> (ex-info (str type) {:type type :data data})
+       (-exception-doc printer)
+       (v/-print-doc printer)
+       #?(:cljs (-> with-out-str println))))))
+
+(defmethod v/-format ::explain [_ _ {:keys [schema] :as explanation} printer]
+  {:body
+   [:group
+    (-block "Schema: " (v/-visit schema printer) printer)]})
+
+(defn verbose-humanize-schema [data opts]
+  (with-out-str
+    ((mp/prettifier
+       ::m/explain
+       "Validation Error"
+       #(me/with-error-messages data)
+       (merge opts {:registry gr.reg/registry})))))
+
+(defn humanize-schema [{:keys [schema] :as explain-data} {:guardrails/keys [fqnm compact? args?] :as opts}]
+  (if compact?
+    (let [v     (me/error-value explain-data {::me/mask-valid-values '_})
+          lines (if args?
+                  [(pr-str (apply list (symbol fqnm) v))
+                   (str "Arg Errors: " (mapv (fn [v] (if (some? v) v '_)) (me/humanize explain-data)))]
+                  [(str (pr-str (list (symbol fqnm) '...)) " => " v)
+                   (str "Return value " (first (me/humanize explain-data)))])
+          lines (into lines
+                  (->
+                    (with-out-str
+                      ((mp/prettifier ::explain ""
+                         #(me/with-error-messages explain-data)
+                         (merge opts {::mp/actor reporter
+                                      :registry  gr.reg/registry}))))
+                    (str/split-lines)))]
+      (str "  " (str/join "\n  " lines)))
+    (verbose-humanize-schema explain-data opts)))
+
 
 #?(:clj
    (do
@@ -105,9 +156,9 @@
        {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                     [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
        [& forms]
-       (let [env (merge &env `{:guardrails/validate-fn  validate
-                               :guardrails/explain-fn   explain
-                               :guardrails/humanize-fn  humanize-schema})]
+       (let [env (merge &env `{:guardrails/validate-fn validate
+                               :guardrails/explain-fn  explain
+                               :guardrails/humanize-fn humanize-schema})]
          (gr.core/>defn* env &form forms {:private? false :guardrails/malli? true})))
      (s/fdef >defn :args ::gr.core/>defn-args)))
 
@@ -120,9 +171,9 @@
        {:arglists '([name doc-string? attr-map? [params*] gspec prepost-map? body?]
                     [name doc-string? attr-map? ([params*] gspec prepost-map? body?) + attr-map?])}
        [& forms]
-       (let [env (merge &env `{:guardrails/validate-fn  validate
-                               :guardrails/explain-fn   explain
-                               :guardrails/humanize-fn  humanize-schema})]
+       (let [env (merge &env `{:guardrails/validate-fn validate
+                               :guardrails/explain-fn  explain
+                               :guardrails/humanize-fn humanize-schema})]
          (gr.core/>defn* env &form forms {:private? true :guardrails/malli? true})))
      (s/fdef >defn- :args ::gr.core/>defn-args)))
 

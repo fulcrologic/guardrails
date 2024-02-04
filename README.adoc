@@ -97,6 +97,15 @@ You can control if spec failures are advisory or fatal by editing `guardrails.ed
 
 Make sure to set your editor or IDE to resolve Guardrails' `>defn` and `>fdef` as Clojure's `defn`, and `>defn-` as `defn-` respectively – this way you get proper highlighting, formatting, error handling, structural navigation, symbol resolution, and refactoring support. A linting configuration for clj-kondo is included and should work out of the box.
 
+=== Output Options
+
+The configuration can be changed to help the signal to noise ratio on failures. If you have heavily instrumented your code with Guardrails, then turning on these two config options will likely give you a clearer picture on failures:
+
+* `:guardrails/compact? true` - Remove blank/excess lines from the failure output.
+* `:guardrails/stack-trace :none` - Change what is shown for the stack trace. :none elides it, :prune causes a more pruned stack trace on a single line, and :full is the default of showing the whole thing.
+* `:guardrails/trace? true` - Shows the GR function call stack on failures (with argument values)
+
+Try the above settings as shown.  You can always see the full stack by calling `last-failure` (which is printed with any failures for convenience). The result is way less noisy, and often sufficient to find the problem. When it's not, the full stack trace is just a copy/paste away.
 
 == Clojurescript Considerations
 
@@ -355,10 +364,6 @@ The default config goes in the root of the project as `guardrails.edn`:
  :expound    {:show-valid-values? true
               :print-specs?       true}
 
- ;; Nilable map of Malli pretty-printer options
- :malli      {:malli.dev.pretty/printer nil
-              :malli.dev.printer/actor  nil}
-
  ;; Check specs in parallel (CLJ only)
  :async?     true
 
@@ -371,11 +376,26 @@ The default config goes in the root of the project as `guardrails.edn`:
  ;; call will be checked.
  :guardrails/mcps 100
 
+ ;; Low-level stack trace output
+ ;; default :full
+ :guardrails/stack-trace :prune ; or :full or :none
+
+ ;; nREPL hates using stderr, but in other REPLs seeing your problems in red is nice.
+ ;; default false
+ :guardrails/use-stderr? true
+
+ ;; Optional (default false). Compress the explanation of the problem.
+ :guardrails/compact? true
+
+ ;; Keep track of the active GR-instrumented calls as a stack, and show that on errors.
+ ;; default false
+ :guardrails/trace? true
+
  ;; should a spec failure on args or ret throw an exception?
  ;; (always logs an informative message)
  :throw?     false
 
- ;; should a spec failure be forwarded through tap> ?
+ ;; should a failure be forwarded through tap> ?
  :tap>?      false}
 -----
 

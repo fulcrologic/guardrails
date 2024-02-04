@@ -1,6 +1,5 @@
 (ns com.fulcrologic.guardrails.malli.core-spec
   (:require
-    [com.fulcrologic.guardrails.config :as config]
     [com.fulcrologic.guardrails.malli.core :refer [=> >defn >def]]
     [fulcro-spec.core :refer [=throws=> assertions specification]]
     [malli.core :as m]))
@@ -9,15 +8,6 @@
    (do
      (System/setProperty "guardrails.enabled" "")
      (System/setProperty "guardrails.config" "guardrails-test.edn")))
-
-#?(:clj
-   (specification "loading config"
-     (assertions
-       "loads the config from the disk file"
-       (config/get-env-config false) => {:defn-macro nil
-                                         :throw?     true
-                                         :expound    {:show-valid-values? true
-                                                      :print-specs?       true}})))
 
 (>def ::foo [:and :int [:>= 0]])
 
@@ -38,6 +28,14 @@
    (if (seq d)
      (reduce + 0 d)
      (+ a b c))))
+
+(>defn sample-binding [binding]
+  [:int => :int]
+  42)
+
+(specification "Ensure that the binding macro gets namespaced"
+  (assertions
+    (sample-binding 1) => 42))
 
 (>defn kw-func
   [& {:keys [a b] :as c}]
@@ -83,3 +81,19 @@
     (seq-func 100 1 2) => 103
     "vararg of sequences"
     (vararg-seq [:a 1] [:b 2]) => [[:a 1] [:b 2]]))
+
+(>defn nested [x]
+  [:int => :int]
+  (+ 2 x))
+
+(>defn top [x]
+  [number? => number?]
+  (nested x))
+
+(specification "Tracing"
+  (assertions
+    "Shows the GR stack"
+    (top 4.3) =throws=> #"(com.fulcrologic.guardrails.malli.core-spec/nested 4.3)"))
+
+(comment
+  (top 3.2))

@@ -1,4 +1,7 @@
-{:defn-macro nil
- :throw?     false
- :expound    {:show-valid-values? true
-              :print-specs?       true}}
+{:defn-macro             nil
+ :throw?                 true
+ :guardrails/compact?    true
+ :guardrails/trace?      true
+ :guardrails/stack-trace :none
+ :expound                {:show-valid-values? true
+                          :print-specs?       true}}

@@ -10,6 +10,7 @@
   #?(:cljs (:require-macros com.fulcrologic.guardrails.utils))
   (:require
     #?(:clj [clojure.stacktrace :as st])
+    [clojure.string :as str]
     [clojure.walk :as walk]))
 
 (defn cljs-env? [env] (boolean (:ns env)))
@@ -97,6 +98,7 @@
          @v))))
 
 (defn stacktrace
+  "Get a string that represents the full stack trace"
   ([err] (stacktrace err nil))
   ([err opts]
    #?(:cljs (str err)
@@ -151,14 +153,162 @@
 ;#?(:cljs
 ;   (def ^:dynamic *err* *out*))
 
+#?(:clj
+   (def ^:dynamic *stacktrace-filters* ["java.lang."
+                                        "com.fulcrologic.guardrails"
+                                        "clojure.test$"
+                                        "clojure.lang."
+                                        "clojure.core"
+                                        "clojure.main"
+                                        "orchestra."
+                                        "kaocha.monkey_patch"]))
+
+(defn- elide-element? [e]
+  #?(:clj  (let [ele-name (.getClassName ^StackTraceElement e)]
+             (or
+               (str/includes? ele-name "guardrails_wrapper")
+               (some (fn [filter] (str/starts-with? ele-name filter)) *stacktrace-filters*)))
+     :cljs false))
+
+#?(:clj
+   (defn- stack-trace-element [^StackTraceElement e]
+     (let [class    (.getClassName e)
+           method   (.getMethodName e)
+           filename (or (.getFileName e) "")
+           line     (.getLineNumber e)]
+       (let [match (re-matches #"^([A-Za-z0-9_.-]+)\$(\w+)__\d+$" (str class))]
+         [(if (and match (= "invoke" method))
+            (apply format "%s/%s" (rest match))
+            (format "%s.%s" class method))
+          filename line]))))
+
+(defn stack-trace
+  "Returns a vector of a Clojure-oriented stack trace of tr a Throwable/Exception. In CLJS this is just `(vector tr)`."
+  ([tr]
+   (stack-trace tr false))
+  ([tr prune?]
+   #?(:clj  (let [st     (.getStackTrace tr)
+                  result []]
+              (loop [[e & st] (next st)
+                     n            0
+                     final-result result]
+                (cond
+                  (and prune? (> n 4)) final-result
+                  e (if (and prune? (elide-element? e))
+                      (recur st n final-result)
+                      (recur st (inc n) (conj final-result (stack-trace-element e))))
+                  :else final-result)))
+      :cljs [(try (.-stack tr) (catch :default _ tr))])))
+
+(declare current-backtrace)
+(declare backtrace-entry-function)
+(declare backtrace-entry-args)
+
 (defn report-info [message]
-  #_(binding [*out* *err*])
   (println message))
 
-(defn report-problem [message]
-  #_(binding [*out* *err*])
-  (println message))
+(def -last-failure-map (volatile! {}))
+(defn last-failure
+  "Returns the stack trace of the most recent GR failure for the fully-qualified function name (string or symbol)
+   `fnsym`.  `prune?` (default true) indicates that it should remove frames that appear to be uninteresting noise."
+  ([fnsym] (last-failure fnsym true))
+  ([fnsym prune?]
+   (some-> @-last-failure-map
+     (get (symbol fnsym))
+     (stack-trace prune?))))
+
+(defn record-failure [str-or-sym e]
+  (vswap! -last-failure-map assoc (symbol str-or-sym) e))
+
+(defn backtrace-str []
+  (str/join "\n"
+    (for [{:keys [f args]} (current-backtrace)
+          :let [call (apply list (into [f] args))]]
+      (str "    " (try (pr-str call)
+                       (catch #?(:clj Throwable :cljs :default) _))))))
+
+(defn problem-description [message callsite-ex {stack-trace-option :guardrails/stack-trace
+                                                :guardrails/keys   [fqnm trace?] :as options}]
+  (cond-> (str message "\n")
+    callsite-ex (cond->
+                  trace? (str "  GR functions on stack. (" `last-failure " '" (or fqnm "fn-sym") ") for full stack:\n" (backtrace-str) "\n")
+                  :and (str (case stack-trace-option
+                              :none nil
+                              :prune (str
+                                       "\nPruned Stack Trace (see `gr.utils/last-failure-stacktrace` for full trace)\n\n"
+                                       (str/join " called by " (map pr-str
+                                                                 (stack-trace callsite-ex true)))
+                                       "\n")
+                              (str/join "\n"
+                                (stack-trace callsite-ex false)))
+                         "\n"))))
+
+(defn report-problem
+  ([message] (report-problem message nil {}))
+  ([message callsite-ex {stack-trace-option :guardrails/stack-trace
+                         :guardrails/keys   [fqnm trace?] :as options}]
+   (println (problem-description message callsite-ex options))))
 
 (defn report-exception [e message]
-  #_(binding [*out* *err*])
   (println (str message "\n" (ex-message e) "\n" (some-> e stacktrace))))
+
+(def ^:dynamic *backtrace* nil)
+
+(defn backtrace-entry
+  ([] [])
+  ([nspc nm args] [nspc nm args]))
+
+(def empty-entry (backtrace-entry))
+
+(defn new-backtrace
+  ([] (new-backtrace 5))
+  ([sz] (let [bt (object-array (inc sz))]
+          (aset bt 0 0)
+          (doseq [n (range 1 (inc sz))]
+            (aset bt n empty-entry))
+          bt)))
+
+(defn backtrace-enter
+  [nspc nm & args]
+  (when *backtrace*
+    (let [next-entry (aget *backtrace* 0)
+          new-entry  (backtrace-entry nspc nm args)
+          sz         (dec (count *backtrace*))]
+      (aset *backtrace* (+ 1 next-entry) new-entry)
+      (aset *backtrace* 0 (mod (inc next-entry) sz)))))
+
+(defn backtrace-exit []
+  (when *backtrace*
+    (let [next-entry  (aget *backtrace* 0)
+          sz          (dec (count *backtrace*))
+          prior-entry (mod (dec next-entry) sz)]
+      (aset *backtrace* (+ 1 prior-entry) empty-entry)
+      (aset *backtrace* 0 prior-entry))))
+
+(defn backtrace-entry-function
+  "Returns the function called in the given backtrace entry, or nil if the entry is nil/empty"
+  [backtrace-entry]
+  (if (or (nil? backtrace-entry) (= backtrace-entry empty-entry))
+    nil
+    (symbol (name (get backtrace-entry 0 "")) (name (get backtrace-entry 1 "")))))
+
+(defn backtrace-entry-args
+  "Returns the arguments passed to the call in the backtrace entry, or nil if empty"
+  [backtrace-entry]
+  (if (or (nil? backtrace-entry) (= backtrace-entry empty-entry))
+    nil
+    (vec (get backtrace-entry 2))))
+
+(defn current-backtrace
+  "Returns a vector of maps for the current backtrace."
+  []
+  (when *backtrace*
+    (let [start (aget *backtrace* 0)
+          sz    (dec (count *backtrace*))]
+      (vec
+        (for [n (range 1 (inc sz))
+              :let [pos   (inc (mod (- start n) sz))
+                    entry (aget *backtrace* pos)]
+              :when (not= entry empty-entry)]
+          {:f    (backtrace-entry-function entry)
+           :args (backtrace-entry-args entry)})))))

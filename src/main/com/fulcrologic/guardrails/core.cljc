@@ -14,14 +14,14 @@
                [clojure.walk :as walk]
                [com.fulcrologic.guardrails.impl.pro :as gr.pro]
                [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs]]]
-        :cljs [[com.fulcrologic.guardrails.impl.externs]])
-    [com.fulcrologic.guardrails.utils :refer [strip-colors]]
+        :cljs [[com.fulcrologic.guardrails.impl.externs]
+               [goog.object :as gobj]])
+    [com.fulcrologic.guardrails.utils :as utils :refer [strip-colors]]
     [com.fulcrologic.guardrails.config :as gr.cfg]
     [clojure.core.async :as async]
     [clojure.spec.alpha :as s]
-    [clojure.string :as string]
+    [clojure.string :as str]
     [com.fulcrologic.guardrails.utils :as utils]
-    [taoensso.encore :as enc]
     [expound.alpha :as exp]))
 
 ;; It doesn't actually matter what these are bound to, they are stripped by
@@ -55,8 +55,8 @@
      `(do
         (enter-global-context! ~ctx)
         (try ~@body
-          (finally
-            (leave-global-context! ~ctx))))))
+             (finally
+               (leave-global-context! ~ctx))))))
 
 (defn- get-global-context [] (first @!global-context))
 
@@ -78,7 +78,7 @@
   (let [{:keys [level ?err msg_ ?ns-str ?file hostname_
                 timestamp_ ?line]} data]
     (str
-      (string/upper-case (name level)) " "
+      (str/upper-case (name level)) " "
       (force msg_)
       (when-let [err ?err]
         (str "\n" (utils/stacktrace err))))))
@@ -88,12 +88,28 @@
 
 (def tap (resolve 'tap>))
 
-(defn humanize-spec [explain-data expound-options]
-  (with-out-str
-    ((exp/custom-printer expound-options) explain-data)))
+(defn humanize-spec [explain-data {:guardrails/keys [compact? args? fqnm] :as expound-options}]
+  (if compact?
+    (let [lines (into [(if args?
+                         (str fqnm "'s arguments:")
+                         (str fqnm "'s return:"))]
+                  (->>
+                    (str/split-lines
+                      (with-out-str
+                        ((exp/custom-printer expound-options) explain-data)))
+                    (remove (fn [l]
+                              (or
+                                (str/includes? l "------")
+                                (re-matches #"^Detected \d.*$" l)
+                                (re-matches #"^\s*$" l)
+                                )))))]
+      (str "  " (str/join "\n  " lines)))
+    (with-out-str
+      ((exp/custom-printer expound-options) explain-data))))
 
-(defn run-check [{:guardrails/keys [malli? validate-fn explain-fn humanize-fn]
-                  :keys            [tap>? args? vararg? humanize-opts callsite throw? fn-name]}
+(defn run-check [{:guardrails/keys [malli? compact? use-stderr? validate-fn explain-fn fqnm humanize-fn]
+                  :keys            [tap>? args? vararg? humanize-opts callsite throw? fn-name]
+                  :as              options}
                  spec
                  value]
   (let [start           (now-ms)
@@ -111,42 +127,48 @@
     ;; actual: [nil 2.0] => "hello"
     (try
       (when-not (validate-fn spec specable-args)
-        (let [explain-data  (explain-fn spec specable-args)
-              explain-human (humanize-fn explain-data humanize-opts)
-              description   (str
-                              "\n"
-                              fn-name
-                              (if args? " argument list" " return type") "\n"
-                              explain-human)
-              context       (get-global-context)]
-          (when (and tap tap>?)
-            (tap #:com.fulcrologic.guardrails
-                    {:_/type        :com.fulcrologic.guardrails/validation-error
-                     :fn-name       fn-name
-                     :failure-point (if args? :args :ret)
-                     :spec          spec
-                     :explain-data  explain-data
-                     :explain-human (strip-colors explain-human)}))
-          (if throw?
-            (reset! valid-exception
-              (ex-info (cond->> description context
-                         (str "\nContext: " context))
-                (with-meta
-                  #:com.fulcrologic.guardrails
-                          {:_/type        :com.fulcrologic.guardrails/validation-error
-                           :fn-name       fn-name
-                           :failure-point (if args? :args :ret)
-                           :spec          spec
-                           :context       context}
-                  #:com.fulcrologic.guardrails
-                          {:val specable-args})))
-            (utils/report-problem (str description "\n" (utils/stacktrace (or callsite (ex-info "" {}))))))))
+        (binding [*out* (if use-stderr? #?(:clj *err* :cljs *out*) *out*)]
+          (let [explain-data  (explain-fn spec specable-args)
+                explain-human (humanize-fn explain-data (assoc humanize-opts
+                                                          :guardrails/compact? compact?
+                                                          :guardrails/fqnm fqnm
+                                                          :guardrails/args? args?))
+                e             (or callsite (ex-info "" {}))
+                description   (utils/problem-description
+                                (str
+                                  "\nGuardrails:\n"
+                                  explain-human)
+                                e options)
+                context       (get-global-context)]
+            (utils/record-failure fqnm e)
+            (when (and tap tap>?)
+              (tap #:com.fulcrologic.guardrails
+                      {:fn-name       fqnm
+                       :failure-point (if args? :args :ret)
+                       :spec          spec
+                       :explain-data  explain-data
+                       :explain-human (strip-colors explain-human)}))
+            (if throw?
+              (reset! valid-exception
+                (ex-info (cond->> description context
+                           (str "\nContext: " context))
+                  (with-meta
+                    #:com.fulcrologic.guardrails
+                            {:_/type        :com.fulcrologic.guardrails/validation-error
+                             :fn-name       fn-name
+                             :failure-point (if args? :args :ret)
+                             :spec          spec
+                             :context       context}
+                    #:com.fulcrologic.guardrails
+                            {:val specable-args})))
+              (utils/report-problem description)))))
       (catch #?(:cljs :default :clj Throwable) e
         (utils/report-exception e (str "BUG: Internal error in " (if malli? "Malli.\n" "expound or clojure spec.\n"))))
       (finally
         (let [duration (- (now-ms) start)]
           (when (> duration 100)
-            (utils/report-problem (str "WARNING: " fn-name " " (if args? "argument specs" "return spec") " took " duration "ms to run."))))))
+            (utils/report-problem (str "WARNING: " fn-name " " (if args? "argument specs" "return spec") " took " duration "ms to run.")
+              nil options)))))
     (when @valid-exception
       (throw @valid-exception)))
   nil)
@@ -266,7 +288,7 @@
          :pred-sym (s/and symbol?
                      (complement #{'| '=> '<-})
                      ;; REVIEW: should the `?` be a requirement?
-                     #(string/ends-with? (str %) "?"))
+                     #(str/ends-with? (str %) "?"))
          :gspec (s/or :nilable-gspec ::nilable-gspec :gspec ::gspec)
          :spec-key qualified-keyword?
          :fun ::pred-fn
@@ -697,11 +719,39 @@
   #?(:cljs (js/Error. "")
      :clj  (AssertionError. "")))
 
+;; The now-nano was taken from taoensso/encore. I didn't want to include that entire dep just for this one
+;; function. The are covered by Eclipse Public License - v 1.0. See https://github.com/taoensso/encore
+#?(:cljs (def ^:no-doc js-?window (when (exists? js/window) js/window))) ; Present iff in browser
+
+#?(:cljs
+   (defn oget "Like `get` for JS objects."
+     ([k] (gobj/get js-?window (name k)))
+     ([o k] (gobj/get o (name k) nil))
+     ([o k not-found] (gobj/get o (name k) not-found))))
+
+#?(:clj
+   (defn now-nano
+     "Returns current value of best-resolution time source as nanoseconds."
+     {:inline (fn [] `(System/nanoTime))}
+     ^long [] (System/nanoTime))
+
+   :cljs
+   (def now-nano
+     "Returns current value of best-resolution time source as nanoseconds."
+     (let [perf (oget js-?window "performance")
+           pf   (when perf
+                  (or
+                    (oget perf "now") (oget perf "mozNow") (oget perf "webkitNow")
+                    (oget perf "msNow") (oget perf "oNow")))]
+       (if (and perf pf)
+         (fn [] (Math/floor (* 1e6 (.call pf perf))))
+         (fn [] (* 1e6 (js/Date.now)))))))
+
 #?(:clj
    (defn- throttle-form [add-throttle?]
      (if add-throttle?
        `(let [ltime#     (deref ~'__gr_vstart-time)
-              now-ns#    (enc/now-nano*)
+              now-ns#    (now-nano)
               elapsed#   (- now-ns# ltime#)
               throttle?# (> (/ (double (deref ~'__gr_vncalls)) elapsed#) ~'__gr_max-calls-per-ns)]
           (when-not throttle?#
@@ -719,6 +769,7 @@
      [cfg fn-tail]
      (let [{:keys                                                      [env fn-name]
             {max-checks-per-second :guardrails/mcps
+             :guardrails/keys      [use-stderr? compact? trace? stack-trace]
              :keys                 [throw? tap>? disable-exclusions?]} :config} cfg
            {:guardrails/keys [validate-fn explain-fn humanize-fn malli?]
             :keys            [async-checks?]} env
@@ -745,6 +796,11 @@
            argspec         (gensym "argspec")
            nspc            (if cljs? (-> env :ns :name str) (name (ns-name *ns*)))
            opts            {:fn-name                where
+                            :guardrails/fqnm        (str (str nspc) "/" (str fn-name))
+                            :guardrails/trace?      trace?
+                            :guardrails/compact?    compact?
+                            :guardrails/stack-trace stack-trace
+                            :guardrails/use-stderr? use-stderr?
                             :guardrails/malli?      malli?
                             :tap>?                  tap>?
                             :throw?                 throw?
@@ -764,13 +820,14 @@
                              `(when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
                                 (let [e# (callsite-exception)]
                                   (~gosym
-                                    (~putsym pending-check-channel (fn []
-                                                                     (when ~argspec
-                                                                       (run-check (assoc
-                                                                                    ~(assoc opts :args? true)
-                                                                                    :callsite e#)
-                                                                         ~argspec
-                                                                         ~arg-syms)))))))
+                                    (~putsym pending-check-channel
+                                      (fn []
+                                        (when ~argspec
+                                          (run-check (assoc
+                                                       ~(assoc opts :args? true)
+                                                       :callsite e#)
+                                            ~argspec
+                                            ~arg-syms)))))))
                              `(when ~argspec
                                 (when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
                                   (run-check ~(assoc opts :args? true) ~argspec ~arg-syms))))
@@ -781,14 +838,18 @@
                              `(when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
                                 (let [e# (callsite-exception)]
                                   (~gosym
-                                    (~putsym pending-check-channel (fn [] (when ~retspec (run-check (assoc
-                                                                                                      ~(assoc opts :args? false)
-                                                                                                      :callsite e#)
-                                                                                           ~retspec
-                                                                                           ~ret)))))))
-                             `(when (and ~retspec (not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))))
+                                    (~putsym pending-check-channel
+                                      (fn []
+                                        (when ~retspec
+                                          (run-check (assoc
+                                                       ~(assoc opts :args? false)
+                                                       :callsite e#)
+                                            ~retspec
+                                            ~ret)))))))
+                             `(when (and ~retspec
+                                      (not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))))
                                 (run-check ~(assoc opts :args? false) ~retspec ~ret)))
-           real-function   `(fn ~raw-arg-vec ~@body-forms)
+           real-function   `(fn ~'guardrails-wrapper ~raw-arg-vec ~@body-forms)
            f               (gensym "f")
            call            (if (boolean conformed-var-arg)
                              `(cond
@@ -796,17 +857,23 @@
                                 (seq ~(last arg-syms)) (apply ~f ~@arg-syms)
                                 :else (~f ~@(butlast arg-syms)))
                              `(~f ~@arg-syms))
-           throttle-form   (throttle-form add-throttling?)]
+           throttle-form   (throttle-form add-throttling?)
+           bnd             (if cljs? `with-redefs 'clojure.core/binding)]
        `(~@(remove nil? [raw-arg-vec prepost])
-          (let [{~argspec :args ~retspec :ret} ~fspec
-                throttle# ~throttle-form]
-            (when-not throttle#
-              ~args-check)
-            (let [~f ~real-function
-                  ~ret ~call]
-              (when-not throttle#
-                ~ret-check)
-              ~ret))))))
+          (~bnd [utils/*backtrace* (or utils/*backtrace* (utils/new-backtrace 10))]
+            (utils/backtrace-enter ~(str nspc) ~(str fn-name) ~@arg-syms)
+            (try
+              (let [{~argspec :args ~retspec :ret} ~fspec
+                    throttle# ~throttle-form]
+                (when-not throttle#
+                  ~args-check)
+                (let [~f ~real-function
+                      ~ret ~call]
+                  (when-not throttle#
+                    ~ret-check)
+                  ~ret))
+              (finally
+                (utils/backtrace-exit))))))))
 
 #?(:clj
    (defn- generate-defn
