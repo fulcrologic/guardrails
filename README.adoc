@@ -31,9 +31,9 @@ so you can better see where you are making mistakes as you make them, with zero 
 Version 1.2 adds some exciting new features:
 
 * Use https://github.com/metosin/malli[Malli] as your <<malli-support,data specification language>>. You can even mix-and-match Clojure Spec and Malli in the same project/namespace.
-* <<check-throttling, Runtime Check Throttling>>: Limit the number of times per second that checks are applied at the namespace, function, or global level.
+* <<check-throttling, Runtime Check Throttling>>: Limit the number of function call checks per second at the namespace, function, or global level.
 * <<static-exclusions, Library exclusions>>: Library authors can auto-exclude internal implementation functions from checks when used in dependent projects downstream.
-* <<dynamic-exclusions, Dynamic exclusions>>: Users can disable and enable active checking for any namespace or function at runtime (including overriding library authors' exclusions)
+* <<dynamic-exclusions, Dynamic exclusions>>: Users can disable and enable active checking for any namespace or function at runtime (including overriding library exclusions)
 * <<Such That, Such-that predicates on the return value>>: Full support for checking such-that predicates on a function's output with the ability to reference any input arguments in both clojure.spec and Malli
 
 == Quick Start
@@ -59,7 +59,8 @@ And code as follows:
 ;; When guardrails is disabled this will just be a normal `defn`, and no fspec overhead will
 ;; appear in cljs builds. When enabled it will check the inputs/outputs and *always* log
 ;; an error using `expound`, and then *optionally* throw an exception,
-(>defn f [i]
+(>defn f
+  [i]
   [::thing => int?]
   (if (string? i)
     0
@@ -208,23 +209,6 @@ and supply a lambda that uses the symbol names from the argument list (and `%` f
   ...)
 -----
 
-[NOTE]
---
-The gspec syntax has a number of advantages:
-
-- It's much more concise and easier to write and read.
-- It's inline, so you can see at a glance what kind of data a function expects and returns right under the
-docstring and arg list, for example when previewing the function definition in your editor.
-- It can be elided to have zero impact on build by an external control (config file/JVM parameter).
-- Renaming/refactoring parameters is a breeze – just use your IDE's symbol rename functionality and all references in
-the predicate functions will be handled correctly, because `>defn` syntax is valid `defn` syntax.
-+
-From the point of view of the programmer and the editor, the function arguments are bound to their respective symbols and can be freely referenced in any expression as expected, including the gspec which is considered just another body form.
-- For the same reason, you can reliably bypass Guardrails temporarily by simply changing `>defn` to `defn` - the minimal performance impact
-of evaluating the gspec vector as the first body form aside, nothing will break.
---
-
-
 === Nilable
 
 The `?` macro can be used as a shorthand for `s/nilable`:
@@ -270,6 +254,20 @@ The assumption here is that `any?` does not imply that the function can in fact 
 You should still write out nested gspecs, even if they are as simple as `[any? \=> any?]` – this is useful as succinct
 documentation that this particular function receives exactly one argument.
 
+=== Gspec Advantages
+
+- It's much more concise and easier to write and read.
+- It's inline, so you can see at a glance what kind of data a function expects and returns right under the
+docstring and arg list, for example when previewing the function definition in your editor.
+- Writing specs for multi-arity functions adds zero complexity, even with multiple return types and such-that predicates
+- Renaming/refactoring parameters is a breeze – just use your IDE's symbol rename functionality and all references in
+the predicate functions will be handled correctly, because `>defn` syntax is valid `defn` syntax.
++
+From the point of view of the programmer and the editor, the function arguments are bound to their respective symbols and can be freely referenced in any expression as expected, including the gspec which is considered just another body form.
+- For the same reason, you can reliably bypass Guardrails temporarily by simply changing `>defn` to `defn` - the minimal performance impact
+of evaluating the gspec vector as the first body form aside, nothing will break.
+- It can be elided to have zero impact on the build by an external control (config file/JVM parameter).
+
 Credit: The above documentation was largely taken from https://github.com/gnl/ghostwheel#the-gspec-syntax[Ghostwheel's documentation].
 
 [#malli-support]
@@ -289,11 +287,13 @@ The special operators `\=>`, `|`, and `?` can come from either implementation, a
     [com.fulcrologic.guardrails.core :as gr.spec]
     [com.fulcrologic.guardrails.malli.core :as gr.malli :refer [=> | ?]))
 
-(gr.spec/>defn f [x]
+(gr.spec/>defn f
+  [x]
   [(s/keys :req [:thing/x]) => int?]
   ...)
 
-(gr.malli/>defn f [x]
+(gr.malli/>defn f
+  [x]
   [[:map :thing/x] => :int]
   ...)
 -----
@@ -308,7 +308,8 @@ Malli does have a default registry, but it is not mutable. This lets you to pick
 
 [source, clojure]
 -----
-(>defn f [x]
+(>defn f
+  [x]
   [[:map {:registry my-reg} ...
 -----
 
@@ -395,7 +396,8 @@ config path of a build:
 
 == Performance
 
-Guardrails adds an overhead that is roughly equivalent to the cost of running a Clojure spec or Malli validation. On an Apple M1 Max, the average check on a generic code base (tested against https://github.com/fulcrologic/statecharts) takes around 11 microseconds. This actually tested out to roughly the same for Malli AND Spec, though we did find cases where
+Guardrails adds an overhead that is roughly equivalent to the cost of running a Clojure spec or Malli validation. On an
+Apple M1 Max, the average check on a generic code base (tested against https://github.com/fulcrologic/statecharts[our statecharts library]) takes around 11 microseconds. This actually tested out to roughly the same for Malli AND Spec, though we did find cases where
 Malli was roughly 2x faster. We did not do further deep analysis.
 
 [source]
