@@ -29,6 +29,14 @@
      (reduce + 0 d)
      (+ a b c))))
 
+(>defn sample-binding [binding]
+  [:int => :int]
+  42)
+
+(specification "Ensure that the binding macro gets namespaced"
+  (assertions
+    (sample-binding 1) => 42))
+
 (>defn kw-func
   [& {:keys [a b] :as c}]
   [[:* [:cat :keyword :any]] => int?]

@@ -133,7 +133,7 @@
                                                           :guardrails/compact? compact?
                                                           :guardrails/fqnm fqnm
                                                           :guardrails/args? args?))
-                e (or callsite (ex-info "" {}))
+                e             (or callsite (ex-info "" {}))
                 description   (utils/problem-description
                                 (str
                                   "\nGuardrails:\n"
@@ -857,9 +857,10 @@
                                 (seq ~(last arg-syms)) (apply ~f ~@arg-syms)
                                 :else (~f ~@(butlast arg-syms)))
                              `(~f ~@arg-syms))
-           throttle-form   (throttle-form add-throttling?)]
+           throttle-form   (throttle-form add-throttling?)
+           bnd             (if cljs? `with-redefs 'clojure.core/binding)]
        `(~@(remove nil? [raw-arg-vec prepost])
-          (binding [utils/*backtrace* (or utils/*backtrace* (utils/new-backtrace 10))]
+          (~bnd [utils/*backtrace* (or utils/*backtrace* (utils/new-backtrace 10))]
             (utils/backtrace-enter ~(str nspc) ~(str fn-name) ~@arg-syms)
             (try
               (let [{~argspec :args ~retspec :ret} ~fspec
