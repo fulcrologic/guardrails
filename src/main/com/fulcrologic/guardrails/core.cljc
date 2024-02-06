@@ -11,7 +11,6 @@
   #?(:cljs (:require-macros com.fulcrologic.guardrails.core))
   (:require
     #?@(:clj  [[clojure.set :as set]
-               [clojure.string :as str]
                [clojure.walk :as walk]
                [com.fulcrologic.guardrails.impl.pro :as gr.pro]
                [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs]]]
@@ -20,10 +19,9 @@
     [com.fulcrologic.guardrails.config :as gr.cfg]
     [clojure.core.async :as async]
     [clojure.spec.alpha :as s]
-    [clojure.string :as string]
+    [clojure.string :as str]
     [com.fulcrologic.guardrails.utils :as utils]
     [taoensso.encore :as enc]
-    [expound.problems :as expp]
     [expound.alpha :as exp]))
 
 ;; It doesn't actually matter what these are bound to, they are stripped by
@@ -80,7 +78,7 @@
   (let [{:keys [level ?err msg_ ?ns-str ?file hostname_
                 timestamp_ ?line]} data]
     (str
-      (string/upper-case (name level)) " "
+      (str/upper-case (name level)) " "
       (force msg_)
       (when-let [err ?err]
         (str "\n" (utils/stacktrace err))))))
@@ -288,7 +286,7 @@
          :pred-sym (s/and symbol?
                      (complement #{'| '=> '<-})
                      ;; REVIEW: should the `?` be a requirement?
-                     #(string/ends-with? (str %) "?"))
+                     #(str/ends-with? (str %) "?"))
          :gspec (s/or :nilable-gspec ::nilable-gspec :gspec ::gspec)
          :spec-key qualified-keyword?
          :fun ::pred-fn

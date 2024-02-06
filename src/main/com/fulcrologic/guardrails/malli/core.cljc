@@ -1,13 +1,12 @@
 (ns com.fulcrologic.guardrails.malli.core
   #?(:cljs (:require-macros com.fulcrologic.guardrails.malli.core))
   (:require
-    [clojure.string :as str]
     [com.fulcrologic.guardrails.malli.registry :as gr.reg :refer [register!]]
-    #?@(:clj [[clojure.string :as string]
+    #?@(:clj [[clojure.spec.alpha :as s]
               [com.fulcrologic.guardrails.config :as gr.cfg]
               [com.fulcrologic.guardrails.impl.pro :as gr.pro]
               [com.fulcrologic.guardrails.utils :as utils :refer [cljs-env? clj->cljs]]])
-    [clojure.spec.alpha :as s]
+    [clojure.string :as str]
     [com.fulcrologic.guardrails.core :as gr.core]
     [malli.core :as m]
     [malli.dev.pretty :as mp]
@@ -31,7 +30,7 @@
        (s/or
          :pred-sym (s/and symbol?
                      (complement #{'| '=>})
-                     #(string/ends-with? (str %) "?"))
+                     #(str/ends-with? (str %) "?"))
          :gspec (s/or :nilable-gspec ::gr.core/nilable-gspec :gspec ::gr.core/gspec)
          :spec-key qualified-keyword?
          :malli-key (s/and simple-keyword? (complement #{:st :ret :gen}))
@@ -50,7 +49,7 @@
        :pred-sym (s/and symbol?
                    (complement #{'| '=>})
                    ;; REVIEW: should the `?` be a requirement?
-                   #(string/ends-with? (str %) "?"))
+                   #(str/ends-with? (str %) "?"))
        :gspec (s/or :nilable-gspec ::gr.core/nilable-gspec :gspec ::gr.core/gspec)
        :spec-key qualified-keyword?
        :malli-key (s/and simple-keyword? (complement #{:st :gen :ret}))
@@ -68,7 +67,7 @@
        (cljs-env? &env) clj->cljs)))
 
 
-(def ^:dynamic *coll-check-limit* s/*coll-check-limit*)
+(def ^:dynamic *coll-check-limit* #?(:clj s/*coll-check-limit* :cljs 4))
 
 #?(:clj
    (defmacro every
