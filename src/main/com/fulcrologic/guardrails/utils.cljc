@@ -227,22 +227,27 @@
       (str "    " (try (pr-str call)
                        (catch #?(:clj Throwable :cljs :default) _))))))
 
+(defn problem-description [message callsite-ex {stack-trace-option :guardrails/stack-trace
+                                                :guardrails/keys   [fqnm trace?] :as options}]
+  (cond-> (str message "\n")
+    callsite-ex (cond->
+                  trace? (str "  GR functions on stack. (" `last-failure " '" (or fqnm "fn-sym") ") for full stack:\n" (backtrace-str) "\n")
+                  :and (str (case stack-trace-option
+                              :none nil
+                              :prune (str
+                                       "\nPruned Stack Trace (see `gr.utils/last-failure-stacktrace` for full trace)\n\n"
+                                       (str/join " called by " (map pr-str
+                                                                 (stack-trace callsite-ex true)))
+                                       "\n")
+                              (str/join "\n"
+                                (stack-trace callsite-ex false)))
+                         "\n"))))
+
 (defn report-problem
   ([message] (report-problem message nil {}))
   ([message callsite-ex {stack-trace-option :guardrails/stack-trace
-                         :guardrails/keys   [fqnm trace?]}]
-   (println message)
-   (when callsite-ex
-     (when trace?
-       (println (str "  GR functions on stack. (" `last-failure " '" (or fqnm "fn-sym") ") for full stack:\n" (backtrace-str))))
-     (case stack-trace-option
-       :none nil
-       :prune (do
-                (println "\nPruned Stack Trace (see `gr.utils/last-failure-stacktrace` for full trace)\n")
-                (println (str/join " called by " (map pr-str
-                                                   (stack-trace callsite-ex true)))))
-       (println (str/join "\n"
-                  (stack-trace callsite-ex false)))))))
+                         :guardrails/keys   [fqnm trace?] :as options}]
+   (println (problem-description message callsite-ex options))))
 
 (defn report-exception [e message]
   (println (str message "\n" (ex-message e) "\n" (some-> e stacktrace))))

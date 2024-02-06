@@ -14,10 +14,13 @@
    (specification "loading config"
      (assertions
        "loads the config from the disk file"
-       (config/get-env-config false) => {:defn-macro nil
-                                         :throw?     true
-                                         :expound    {:show-valid-values? true
-                                                      :print-specs?       true}})))
+       (config/get-env-config false) => {:defn-macro             nil
+                                         :throw?                 true
+                                         :guardrails/compact?    true,
+                                         :guardrails/trace?      true,
+                                         :guardrails/stack-trace :prune,
+                                         :expound                {:show-valid-values? true
+                                                                  :print-specs?       true}})))
 
 #?(:clj
    (specification "Normal mode >defn macro"

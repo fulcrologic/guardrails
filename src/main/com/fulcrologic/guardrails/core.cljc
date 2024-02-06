@@ -14,14 +14,14 @@
                [clojure.walk :as walk]
                [com.fulcrologic.guardrails.impl.pro :as gr.pro]
                [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs]]]
-        :cljs [[com.fulcrologic.guardrails.impl.externs]])
-    [com.fulcrologic.guardrails.utils :refer [strip-colors]]
+        :cljs [[com.fulcrologic.guardrails.impl.externs]
+               [goog.object :as gobj]])
+    [com.fulcrologic.guardrails.utils :as utils :refer [strip-colors]]
     [com.fulcrologic.guardrails.config :as gr.cfg]
     [clojure.core.async :as async]
     [clojure.spec.alpha :as s]
     [clojure.string :as str]
     [com.fulcrologic.guardrails.utils :as utils]
-    [taoensso.encore :as enc]
     [expound.alpha :as exp]))
 
 ;; It doesn't actually matter what these are bound to, they are stripped by
@@ -94,15 +94,15 @@
                          (str fqnm "'s arguments:")
                          (str fqnm "'s return:"))]
                   (->>
-                   (str/split-lines
-                     (with-out-str
-                       ((exp/custom-printer expound-options) explain-data)))
-                   (remove (fn [l]
-                             (or
-                               (str/includes? l "------")
-                               (re-matches #"^Detected \d.*$" l)
-                               (re-matches #"^\s*$" l)
-                               )))))]
+                    (str/split-lines
+                      (with-out-str
+                        ((exp/custom-printer expound-options) explain-data)))
+                    (remove (fn [l]
+                              (or
+                                (str/includes? l "------")
+                                (re-matches #"^Detected \d.*$" l)
+                                (re-matches #"^\s*$" l)
+                                )))))]
       (str "  " (str/join "\n  " lines)))
     (with-out-str
       ((exp/custom-printer expound-options) explain-data))))
@@ -133,10 +133,14 @@
                                                           :guardrails/compact? compact?
                                                           :guardrails/fqnm fqnm
                                                           :guardrails/args? args?))
-                description   (str
-                                "\nGuardrails:\n"
-                                explain-human)
+                e (or callsite (ex-info "" {}))
+                description   (utils/problem-description
+                                (str
+                                  "\nGuardrails:\n"
+                                  explain-human)
+                                e options)
                 context       (get-global-context)]
+            (utils/record-failure fqnm e)
             (when (and tap tap>?)
               (tap #:com.fulcrologic.guardrails
                       {:fn-name       fqnm
@@ -157,9 +161,7 @@
                              :context       context}
                     #:com.fulcrologic.guardrails
                             {:val specable-args})))
-              (let [e (or callsite (ex-info "" {}))]
-                (utils/record-failure fqnm e)
-                (utils/report-problem description e options))))))
+              (utils/report-problem description)))))
       (catch #?(:cljs :default :clj Throwable) e
         (utils/report-exception e (str "BUG: Internal error in " (if malli? "Malli.\n" "expound or clojure spec.\n"))))
       (finally
@@ -717,11 +719,39 @@
   #?(:cljs (js/Error. "")
      :clj  (AssertionError. "")))
 
+;; The now-nano was taken from taoensso/encore. I didn't want to include that entire dep just for this one
+;; function. The are covered by Eclipse Public License - v 1.0. See https://github.com/taoensso/encore
+#?(:cljs (def ^:no-doc js-?window (when (exists? js/window) js/window))) ; Present iff in browser
+
+#?(:cljs
+   (defn oget "Like `get` for JS objects."
+     ([k] (gobj/get js-?window (name k)))
+     ([o k] (gobj/get o (name k) nil))
+     ([o k not-found] (gobj/get o (name k) not-found))))
+
+#?(:clj
+   (defn now-nano
+     "Returns current value of best-resolution time source as nanoseconds."
+     {:inline (fn [] `(System/nanoTime))}
+     ^long [] (System/nanoTime))
+
+   :cljs
+   (def now-nano
+     "Returns current value of best-resolution time source as nanoseconds."
+     (let [perf (oget js-?window "performance")
+           pf   (when perf
+                  (or
+                    (oget perf "now") (oget perf "mozNow") (oget perf "webkitNow")
+                    (oget perf "msNow") (oget perf "oNow")))]
+       (if (and perf pf)
+         (fn [] (Math/floor (* 1e6 (.call pf perf))))
+         (fn [] (* 1e6 (js/Date.now)))))))
+
 #?(:clj
    (defn- throttle-form [add-throttle?]
      (if add-throttle?
        `(let [ltime#     (deref ~'__gr_vstart-time)
-              now-ns#    (enc/now-nano*)
+              now-ns#    (now-nano)
               elapsed#   (- now-ns# ltime#)
               throttle?# (> (/ (double (deref ~'__gr_vncalls)) elapsed#) ~'__gr_max-calls-per-ns)]
           (when-not throttle?#
