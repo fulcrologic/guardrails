@@ -88,15 +88,8 @@
        (when (and cfg (#{:runtime :all} mode))
          `(register! ~k ~v)))))
 
-(let [get-validator (memoize (fn [s] (m/validator s {:registry gr.reg/registry})))]
-  (defn validate [schema value]
-    (let [v? (get-validator schema)]
-      (v? value))))
-
-(let [get-explainer (memoize (fn [s] (m/explainer s {:registry gr.reg/registry})))]
-  (defn explain [schema value]
-    (let [exp (get-explainer schema)]
-      (exp value))))
+(defn validate [schema value] (m/validate schema value {:registry gr.reg/registry}))
+(defn explain [schema value] (m/explain schema value {:registry gr.reg/registry}))
 
 (defn -block [text body printer]
   [:group (v/-text text printer) [:align 2 body]])
