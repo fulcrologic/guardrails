@@ -62,10 +62,6 @@
       <id>clojars</id>
       <url>https://repo.clojars.org/</url>
     </repository>
-    <repository>
-      <id>fulcrologic</id>
-      <url>https://mvn.fulcrologic.com</url>
-    </repository>
   </repositories>
   <dependencies>
     <dependency>
