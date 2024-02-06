@@ -8,11 +8,13 @@
 (defonce ^{:docstring "The atom that holds the schemas that guardrails will use for validating gspecs. This is a public
 atom, and you can choose to manipulate it directly; however, library authors should only add things to this that are
 namespaced to the library itself."}
-  schema-atom (atom (m/default-schemas)))
+  schema-atom (atom {}))
 
-(defonce ^{:docstring "The Malli registry using by guardrails when validating gspecs. It is a mutable registry that
+(defonce ^{:docstring "The Malli registry using by guardrails when validating gspecs. It is a composite registry or malli default registry and mutable registry that
  works from the schema-atom in this ns."}
-  registry (mr/mutable-registry schema-atom))
+  registry (mr/composite-registry
+            m/default-registry
+            (mr/mutable-registry schema-atom)))
 
 (defn register!
   "Register the given keyword with the given schema.
