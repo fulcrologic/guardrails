@@ -537,7 +537,7 @@ Much of the source code in this library is directly from https://github.com/gnl/
 This library's goals are:
 
 - The ability to use a simple DSL to declare the spec with a function (taken from Ghostwheel). See that library's docs
-for *syntax* of `>defn`, `>defn`, etc.
+for *syntax* of `>defn`, `>def`, etc.
 - The ability to support dead-code elimination in cljs.
 - No reliance on generative testing facilities/checkers. No orchestra/instrument stuff.
 - Good output when a function receives or emits an incorrect value.
