@@ -1,4 +1,4 @@
-# 1.2.0-1 Malli Support and Output Improvements
+# 1.2.0-2 Malli Support and Output Improvements
 
 Guardrails now implements all of clojure.spec, Orchestra and Malli’s combined function call validation functionality,
 including a number of unique features and a minimal, adjustable runtime performance impact during development. 
@@ -27,7 +27,7 @@ Improved output support for schema failures
 
     Non-exhaustive malli checks, various fixes, documentation, code clean-up and reformatting
 
-# 1.2.0 Malli Support, see 1.2.0-1 instead
+# 1.2.0 Malli Support, but use 1.2.0-2 instead.
 
 # 1.1.0
 
