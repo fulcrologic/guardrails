@@ -24,23 +24,25 @@ Efficient, hassle-free function call validation with a concise inline syntax for
 ----
 
 Guardrails is intended to make it possible (and easy) to use specs/schemas as a loose but informative (even advisory) type system during development
-so you can better see where you are making mistakes as you make them, with zero impact on _production_ build size or performance and minimal impact during development.
+so you can better see where you are making mistakes as you make them, with zero impact on _production_ build size or performance, and minimal impact during development.
 
-== NEW in 1.2.0
+It's the evolution of https://github.com/gnl/ghostwheel[Ghostwheel's] runtime spec validation functionality, which it streamlines, optimizes and extends, while keeping the original inline syntax. See the <<Why?, "Why?">> section for more details on Guardrails' rationale and origin story.
 
-Version 1.2 adds some exciting new features (partially funded by Dataico[https://www.dataico.com]):
+== NEW in 1.2
+
+Version 1.2 adds some exciting new features and performance improvements (partially funded by https://www.dataico.com[Dataico]):
 
 * Use https://github.com/metosin/malli[Malli] as your <<malli-support,data specification language>>. You can even mix-and-match Clojure Spec and Malli in the same project/namespace.
-* <<check-throttling, Runtime Check Throttling>>: Limit the number of function call checks per second at the namespace, function, or global level.
-* <<static-exclusions, Library exclusions>>: Library authors can auto-exclude internal implementation functions from checks when used in dependent projects downstream.
-* <<dynamic-exclusions, Dynamic exclusions>>: Users can disable and enable active checking for any namespace or function at runtime (including overriding library exclusions)
-* <<Such That, Such-that predicates on the return value>>: Full support for checking such-that predicates on a function's output with the ability to reference any input arguments in both clojure.spec and Malli
+* <<check-throttling, Runtime check throttling / non-exhaustive checking>>: Limit the number of function call checks per second at the namespace, function, or global level.
+* <<static-exclusions, Library exclusions>>: Authors can auto-exclude internal implementation functions from validation when their libraries are used in dependent projects downstream.
+* <<dynamic-exclusions, Dynamic exclusions>>: Users can disable and enable active checking for any namespace or function at runtime, as well as override library exclusions.
+* <<Such That, Such-that predicates on the return value>>: Full support for checking such-that predicates on a function's output, with the ability to reference any input arguments in both clojure.spec and Malli.
 
 == Quick Start
 
 . Add this library to your dependencies
-. Create a `guardrails.edn` with `{}` in it in your project root.
-. When you run a REPL or CLJS compiler, include the JVM option `-Dguardrails.enabled`.
+. Create a `guardrails.edn` with `{}` in it in your project root
+. When you run a REPL or CLJS compiler, include the JVM option `-Dguardrails.enabled`
 ** Optionally: If you're using CLJS, set your compiler options to include `{:external-config {:guardrails {}}}`
 
 And code as follows:
