@@ -28,7 +28,7 @@ so you can better see where you are making mistakes as you make them, with zero 
 
 == NEW in 1.2.0
 
-Version 1.2 adds some exciting new features:
+Version 1.2 adds some exciting new features (partially funded by Dataico[https://www.dataico.com]):
 
 * Use https://github.com/metosin/malli[Malli] as your <<malli-support,data specification language>>. You can even mix-and-match Clojure Spec and Malli in the same project/namespace.
 * <<check-throttling, Runtime Check Throttling>>: Limit the number of function call checks per second at the namespace, function, or global level.
