@@ -10,7 +10,7 @@
     [com.fulcrologic.guardrails.core :as gr.core]
     [malli.core :as m]
     [malli.dev.pretty :as mp]
-    [malli.dev.virhe :as v]
+    [com.fulcrologic.guardrails.malli.formatting :as v]
     [malli.error :as me]
     [malli.registry]))
 
@@ -95,8 +95,7 @@
   [:group (v/-text text printer) [:align 2 body]])
 
 (defn -exception-doc [e printer]
-  (let [{:keys [type data]} (ex-data e)
-        {:keys [body] :or {title (:title printer)}} (v/-format type (ex-message e) data printer)]
+  (let [{:keys [body] :or {title (:title printer)}} (v/format e printer)]
     [:group body]))
 
 (defn reporter
@@ -108,7 +107,7 @@
        (v/-print-doc printer)
        #?(:cljs (-> with-out-str println))))))
 
-(defmethod v/-format ::explain [_ _ {:keys [schema] :as explanation} printer]
+(defmethod v/-format ::explain [_ {:keys [schema] :as explanation} printer]
   {:body
    [:group
     (-block "Schema: " (v/-visit schema printer) printer)]})
