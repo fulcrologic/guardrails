@@ -60,3 +60,5 @@ resources/public/workspaces
 pom.xml.releaseBackup
 release.properties
 /.clj-kondo/*/
+.calva/output-window
+.lsp/.cache/**
