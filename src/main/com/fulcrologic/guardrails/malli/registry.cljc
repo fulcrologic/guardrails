@@ -4,7 +4,6 @@
     [malli.core :as m]
     [malli.registry :as mr]))
 
-
 (defonce ^{:docstring "The atom that holds the schemas that guardrails will use for validating gspecs. This is a public
 atom, and you can choose to manipulate it directly; however, library authors should only add things to this that are
 namespaced to the library itself."}

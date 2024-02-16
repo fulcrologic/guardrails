@@ -177,8 +177,8 @@
      (let [result               (if (or (not cache?)
                                       #?(:clj (= "false" (System/getProperty "guardrails.cache"))))
                                   (reload-config)
-                                  (let [now        (identity #?(:clj (System/currentTimeMillis) :cljs (js/Date.now)))
-                                        since-last (- now (::timestamp @*config-cache))]
+                                  (let [now        (long (identity #?(:clj (System/currentTimeMillis) :cljs (js/Date.now))))
+                                        since-last (- now (long (::timestamp @*config-cache)))]
                                     (if (< since-last 2000)
                                       (::value @*config-cache)
                                       (::value (reset! *config-cache {::timestamp now

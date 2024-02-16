@@ -10,19 +10,18 @@
 (ns com.fulcrologic.guardrails.core
   #?(:cljs (:require-macros com.fulcrologic.guardrails.core))
   (:require
-    #?@(:clj  [[clojure.set :as set]
-               [clojure.walk :as walk]
-               [com.fulcrologic.guardrails.impl.pro :as gr.pro]
-               [com.fulcrologic.guardrails.utils :refer [cljs-env? clj->cljs]]]
-        :cljs [[com.fulcrologic.guardrails.impl.externs]
-               [goog.object :as gobj]])
-    [com.fulcrologic.guardrails.utils :as utils :refer [strip-colors]]
-    [com.fulcrologic.guardrails.config :as gr.cfg]
-    [clojure.core.async :as async]
-    [clojure.spec.alpha :as s]
-    [clojure.string :as str]
-    [com.fulcrologic.guardrails.utils :as utils]
-    [expound.alpha :as exp]))
+   #?@(:clj  [[clojure.set :as set]
+              [clojure.walk :as walk]
+              [clojure.spec.alpha :as s]
+              [com.fulcrologic.guardrails.config :as gr.cfg]
+              [com.fulcrologic.guardrails.impl.pro :as gr.pro]
+              [com.fulcrologic.guardrails.utils :as utils :refer [cljs-env? clj->cljs strip-colors]]]
+       :cljs [[com.fulcrologic.guardrails.impl.externs]
+              [com.fulcrologic.guardrails.utils :as utils :refer [strip-colors]]
+              [goog.object :as gobj]])
+   [clojure.core.async :as async]
+   [clojure.string :as str]
+   [expound.alpha :as exp]))
 
 ;; It doesn't actually matter what these are bound to, they are stripped by
 ;; the macros they're used in and never end up in the final code. This is just
@@ -83,8 +82,12 @@
       (when-let [err ?err]
         (str "\n" (utils/stacktrace err))))))
 
-(defn now-ms [] #?(:clj  (System/currentTimeMillis)
-                   :cljs (inst-ms (js/Date.))))
+#?(:clj
+   (defn now-ms ^long []
+     (System/currentTimeMillis))
+   :cljs
+   (defn now-ms []
+     (inst-ms (js/Date.))))
 
 (def tap (resolve 'tap>))
 
@@ -449,7 +452,7 @@
                                           (if anon-fspec?
                                             (interleave
                                               (map-indexed
-                                                (fn [index _]
+                                                (fn [^long index _]
                                                   (keyword (format "arg%s" (str (inc index)))))
                                                 (repeat nil))
                                               __)
@@ -568,7 +571,7 @@
          process-arg
          (fn [index [arg-type arg]]
            (let [arg-prefix (format "arg%s_" (str (if (int? index)
-                                                    (inc index)
+                                                    (inc (long index))
                                                     index)))]
              (as-> arg arg
                (case arg-type
@@ -610,7 +613,7 @@
    ;; Can not have one with more regular args than the variadic one
    ;; To what extent does the compiler already check this?
    (let [get-fspecs    (fn [malli? fn-tail]
-                         (let [[param-count variadic] (-> fn-tail :args count-args)
+                         (let [[param-count ^long variadic] (-> fn-tail :args count-args)
                                gspec (or (:gspec fn-tail)
                                        (s/conform ::gspec
                                          (vec (concat (repeat param-count 'any?)
@@ -750,12 +753,12 @@
 #?(:clj
    (defn- throttle-form [add-throttle?]
      (if add-throttle?
-       `(let [ltime#     (deref ~'__gr_vstart-time)
+       `(let [ltime#     (long (deref ~'__gr_vstart-time))
               now-ns#    (now-nano)
               elapsed#   (- now-ns# ltime#)
               throttle?# (> (/ (double (deref ~'__gr_vncalls)) elapsed#) ~'__gr_max-calls-per-ns)]
           (when-not throttle?#
-            (vswap! ~'__gr_vncalls inc))
+            (vswap! ~'__gr_vncalls (comp inc long)))
           (when (> elapsed# ~'__gr_reset-stats-ns)
             (vreset! ~'__gr_vstart-time now-ns#)
             (vreset! ~'__gr_vncalls 0))

@@ -9,11 +9,23 @@
 (ns ^:no-doc com.fulcrologic.guardrails.utils
   #?(:cljs (:require-macros com.fulcrologic.guardrails.utils))
   (:require
-    #?(:clj [clojure.stacktrace :as st])
-    [clojure.string :as str]
-    [clojure.walk :as walk]))
+   #?(:clj [clojure.stacktrace :as st])
+   [clojure.string :as str]
+   [clojure.walk :as walk])
+  #?(:clj
+     (:import
+      [java.lang Throwable])))
 
 (defn cljs-env? [env] (boolean (:ns env)))
+
+#?(:clj
+   (defn hint-backtrace ^"[Ljava.lang.Object;"
+     [backtrace]
+     backtrace)
+   :cljs
+   (defn hint-backtrace
+     [backtrace]
+     backtrace))
 
 (defn get-ns-meta [env]
   (if (cljs-env? env)
@@ -187,10 +199,10 @@
   ([tr]
    (stack-trace tr false))
   ([tr prune?]
-   #?(:clj  (let [st     (.getStackTrace tr)
+   #?(:clj  (let [st     (.getStackTrace ^Throwable tr)
                   result []]
               (loop [[e & st] (next st)
-                     n            0
+                     n        0
                      final-result result]
                 (cond
                   (and prune? (> n 4)) final-result
@@ -262,28 +274,30 @@
 
 (defn new-backtrace
   ([] (new-backtrace 5))
-  ([sz] (let [bt (object-array (inc sz))]
-          (aset bt 0 0)
-          (doseq [n (range 1 (inc sz))]
+  ([sz] (let [bt (object-array (inc (long sz)))]
+          (aset bt 0 #?(:clj (Long/valueOf 0) :cljs 0))
+          (doseq [n (range 1 (inc (long sz)))]
             (aset bt n empty-entry))
           bt)))
 
 (defn backtrace-enter
   [nspc nm & args]
   (when *backtrace*
-    (let [next-entry (aget *backtrace* 0)
+    (let [backtrace  (hint-backtrace *backtrace*)
+          next-entry (long (aget backtrace 0))
           new-entry  (backtrace-entry nspc nm args)
-          sz         (dec (count *backtrace*))]
-      (aset *backtrace* (+ 1 next-entry) new-entry)
-      (aset *backtrace* 0 (mod (inc next-entry) sz)))))
+          sz         (dec (count backtrace))]
+      (aset backtrace (+ 1 next-entry) new-entry)
+      (aset backtrace 0 (mod (inc next-entry) sz)))))
 
 (defn backtrace-exit []
   (when *backtrace*
-    (let [next-entry  (aget *backtrace* 0)
-          sz          (dec (count *backtrace*))
-          prior-entry (mod (dec next-entry) sz)]
-      (aset *backtrace* (+ 1 prior-entry) empty-entry)
-      (aset *backtrace* 0 prior-entry))))
+    (let [backtrace   (hint-backtrace *backtrace*)
+          next-entry  (long (aget backtrace 0))
+          sz          (dec (count backtrace))
+          prior-entry (long (mod (dec next-entry) sz))]
+      (aset backtrace (+ 1 prior-entry) empty-entry)
+      (aset backtrace 0 #?(:clj (Long/valueOf prior-entry) :cljs prior-entry)))))
 
 (defn backtrace-entry-function
   "Returns the function called in the given backtrace entry, or nil if the entry is nil/empty"
@@ -303,12 +317,13 @@
   "Returns a vector of maps for the current backtrace."
   []
   (when *backtrace*
-    (let [start (aget *backtrace* 0)
-          sz    (dec (count *backtrace*))]
+    (let [backtrace (hint-backtrace *backtrace*)
+          start (long (aget backtrace 0))
+          sz    (long (dec (count backtrace)))]
       (vec
         (for [n (range 1 (inc sz))
-              :let [pos   (inc (mod (- start n) sz))
-                    entry (aget *backtrace* pos)]
+              :let [pos   (inc (long (mod (- start (long n)) sz)))
+                    entry (aget backtrace pos)]
               :when (not= entry empty-entry)]
           {:f    (backtrace-entry-function entry)
            :args (backtrace-entry-args entry)})))))
