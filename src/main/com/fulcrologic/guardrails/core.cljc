@@ -12,15 +12,15 @@
   (:require
    #?@(:clj  [[clojure.set :as set]
               [clojure.walk :as walk]
-              [clojure.spec.alpha :as s]
-              [com.fulcrologic.guardrails.config :as gr.cfg]
               [com.fulcrologic.guardrails.impl.pro :as gr.pro]
               [com.fulcrologic.guardrails.utils :as utils :refer [cljs-env? clj->cljs strip-colors]]]
        :cljs [[com.fulcrologic.guardrails.impl.externs]
               [com.fulcrologic.guardrails.utils :as utils :refer [strip-colors]]
               [goog.object :as gobj]])
    [clojure.core.async :as async]
+   [clojure.spec.alpha :as s]
    [clojure.string :as str]
+   [com.fulcrologic.guardrails.config :as gr.cfg]
    [expound.alpha :as exp]))
 
 ;; It doesn't actually matter what these are bound to, they are stripped by
@@ -104,8 +104,7 @@
                               (or
                                 (str/includes? l "------")
                                 (re-matches #"^Detected \d.*$" l)
-                                (re-matches #"^\s*$" l)
-                                )))))]
+                                (re-matches #"^\s*$" l))))))]
       (str "  " (str/join "\n  " lines)))
     (with-out-str
       ((exp/custom-printer expound-options) explain-data))))
