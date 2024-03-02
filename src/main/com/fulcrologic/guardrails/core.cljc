@@ -984,6 +984,22 @@
                              :guardrails/humanize-fn humanize-spec})]
        (>defn* env &form forms {:private? true}))))
 
+#?(:clj
+   (defmacro >defmethod
+     "Like defmethod, but requires a (nilable) gspec definition and generates
+     additional `s/fdef` function spec definition and validation code."
+     [multifn dispatch-val argv gspec & body]
+     (let [delegate-defn-name (gensym (str multifn "_"))]
+       `(do
+          (>defn- ~delegate-defn-name
+            ~argv
+            ~gspec
+            ~@body)
+          (defmethod ~multifn
+            ~dispatch-val
+            ~argv
+            (~delegate-defn-name ~@argv))))))
+
 (comment
   (>defn- test-function [] [=> nil?] nil)
   (clojure.pprint/pprint (meta #'test-function))
