@@ -24,6 +24,7 @@ namespaced to the library itself."}
   "Add the given Malli schemas to the GR registry. All of Malli's default-schemas are merged by default.
    schemas."
   [& schemas]
-  (swap! schema-atom apply merge schemas))
+  (let [combined (apply merge schemas)]
+    (swap! schema-atom merge combined)))
 
 (register! :every (m/-collection-schema {:type :every, :pred coll?}))
