@@ -505,13 +505,13 @@ NOTE: As a library *author* these exclusions will end up applying to your code a
 
 NOTE: This is an older attempt at helping performance, and it is moderately helpful when you want exhaustive checking in Clojure. In general, you should instead prefer the use of exclusions or the max checks per second setting at the namespace, function, or project level.
 
-Guardrails has an asynchronous checking mode (which mainly benefits Clojure).
+Guardrails has an asynchronous checking mode for Clojure.
 
-When this mode is enabled it pushes spec checking into a `core.async` channel with a dropping buffer (size 10,000). The overhead for the `put` is just a few microseconds. This allows an alternate thread to run the checks, and as long as you don't have large sustained computations this can give you nearly full-production performance of your code, while an alternate core in your computer handles the checks.
+When this mode is enabled it pushes spec checking into a queue with a dropping buffer (size 10,000), which is processed by another thread. The overhead for the `put` is just a few microseconds. This allows an alternate thread to run the checks, and as long as you don't have large sustained computations this can give you nearly full-production performance of your code, while an alternate core in your computer handles the checks.
 
 Benefits:
 
-* Much faster dev performance (Clojure only. The option works in CLJS, but there's not a second thread so there is no benefit).
+* Much faster dev performance (Clojure only. The option does nothing in CLJS).
 * High performance algorithms can use guardrails with a tolerable cost.
 
 Costs:

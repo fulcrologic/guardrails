@@ -17,7 +17,6 @@
        :cljs [[com.fulcrologic.guardrails.impl.externs]
               [com.fulcrologic.guardrails.utils :as utils :refer [strip-colors]]
               [goog.object :as gobj]])
-   [clojure.core.async :as async]
    [clojure.spec.alpha :as s]
    [clojure.string :as str]
    [com.fulcrologic.guardrails.config :as gr.cfg]
@@ -59,18 +58,22 @@
 
 (defn- get-global-context [] (first @!global-context))
 
+(defonce pending-checks
+         #?(:clj (java.util.concurrent.ArrayBlockingQueue. 10000)
+            :cljs nil))
 
-(defonce pending-check-channel (async/chan (async/dropping-buffer 10000)))
 
-(defonce async-go-channel
-  (async/go-loop [check (async/<! pending-check-channel)]
-    (if check
-      (do
-        (try
-          (check)
-          (catch #?(:clj Exception :cljs :default) _))
-        (recur (async/<! pending-check-channel)))
-      (println "Guardrails ASYNC LOOP STOPPED ****************************************"))))
+#?(:clj
+   (defonce check-thread
+            (doto (Thread. ^Runnable
+                           (fn []
+                             (try
+                               ((.take ^java.util.concurrent.BlockingQueue pending-checks))
+                               (catch #?(:clj Exception :cljs :default) _))
+                             (recur))
+                           "Guardrails Async")
+              (.setDaemon true)
+              (.start))))
 
 ;; runtime checking (both clj and cljs
 (defn- output-fn [data]
@@ -813,41 +816,39 @@
                             :guardrails/validate-fn validate-fn
                             :guardrails/explain-fn  explain-fn
                             :guardrails/humanize-fn humanize-fn}
-           gosym           (if cljs? 'cljs.core.async/go 'clojure.core.async/go)
-           putsym          (if cljs? 'cljs.core.async/>! 'clojure.core.async/>!)
            exclusion-coord (if disable-exclusions?
                              [:undefined/function :undefined]
                              [(keyword nspc (name fn-name)) (keyword nspc)])
-           args-check      (if async-checks?
+           args-check      (if #?(:clj async-checks? :cljs false)
                              `(when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
                                 (let [e# (callsite-exception)]
-                                  (~gosym
-                                    (~putsym pending-check-channel
-                                      (fn []
-                                        (when ~argspec
-                                          (run-check (assoc
-                                                       ~(assoc opts :args? true)
-                                                       :callsite e#)
-                                            ~argspec
-                                            ~arg-syms)))))))
+                                  (.offer
+                                    ^java.util.concurrent.BlockingQueue pending-checks
+                                    (fn []
+                                      (when ~argspec
+                                        (run-check (assoc
+                                                     ~(assoc opts :args? true)
+                                                     :callsite e#)
+                                                   ~argspec
+                                                   ~arg-syms))))))
                              `(when ~argspec
                                 (when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
                                   (run-check ~(assoc opts :args? true) ~argspec ~arg-syms))))
            retspec         (gensym "retspec")
            ret             (gensym "ret")
            add-throttling? (number? max-checks-per-second)
-           ret-check       (if async-checks?
+           ret-check       (if #?(:clj async-checks? :cljs false)
                              `(when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
                                 (let [e# (callsite-exception)]
-                                  (~gosym
-                                    (~putsym pending-check-channel
-                                      (fn []
-                                        (when ~retspec
-                                          (run-check (assoc
-                                                       ~(assoc opts :args? false)
-                                                       :callsite e#)
-                                            ~retspec
-                                            ~ret)))))))
+                                  (.offer
+                                    ^java.util.concurrent.BlockingQueue pending-checks
+                                    (fn []
+                                      (when ~retspec
+                                        (run-check (assoc
+                                                     ~(assoc opts :args? false)
+                                                     :callsite e#)
+                                                   ~retspec
+                                                   ~ret))))))
                              `(when (and ~retspec
                                       (not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))))
                                 (run-check ~(assoc opts :args? false) ~retspec ~ret)))
