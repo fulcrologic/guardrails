@@ -366,9 +366,6 @@ The default config goes in the root of the project as `guardrails.edn`:
  :expound    {:show-valid-values? true
               :print-specs?       true}
 
- ;; Check specs in parallel (CLJ only)
- :async?     true
-
  ;; GLOBALLY enable non-exhaustive checking (this is NOT recommended, you'd
  ;; usually want to set it in a more granular fashion on the function or
  ;; namespace level using metadata.)
@@ -500,30 +497,6 @@ A quick implementation note: In order to make this work in Clojurescript a macro
 The set of exclusions found in export files at load time is what `reset-exclusions!` will restore if you have dynamically changed the exclusions at runtime. Basically this load-time set is kept in a var for exactly this reason since CLJS cannot re-trigger a classpath scan.
 
 NOTE: As a library *author* these exclusions will end up applying to your code as well, since it is difficult to tell which export file belongs to which project on the classpath. Thus the beginning of your test namespaces (and possibly your non-published user ns) should all start with a call to `config/clear-exclusions!` if you want to include your implementation checks while running your tests and working on your library code.
-
-=== Async Mode for Clojure (not useful in CLJS)
-
-NOTE: This is an older attempt at helping performance, and it is moderately helpful when you want exhaustive checking in Clojure. In general, you should instead prefer the use of exclusions or the max checks per second setting at the namespace, function, or project level.
-
-Guardrails has an asynchronous checking mode for Clojure.
-
-When this mode is enabled it pushes spec checking into a queue with a dropping buffer (size 10,000), which is processed by another thread. The overhead for the `put` is just a few microseconds. This allows an alternate thread to run the checks, and as long as you don't have large sustained computations this can give you nearly full-production performance of your code, while an alternate core in your computer handles the checks.
-
-Benefits:
-
-* Much faster dev performance (Clojure only. The option does nothing in CLJS).
-* High performance algorithms can use guardrails with a tolerable cost.
-
-Costs:
-
-* Checking results are queued. If a lot of slow checks get in the queue you might have to wait some time before you see the problems. This could cause confusion (you might be running your next expression in the REPL and see an error from the prior one).
-* Not all checks will run in a CPU-intensive task that queues checks rapidly.
-* Async mode is incompatible with the `:throw? true` option.
-
-To enable the async mode, just add `:async? true` in your `guardrails.edn` file.
-
-This mode does not benefit clojurescript because there *is no* alternate thread to push the checks to.
-
 
 == Why?
 
