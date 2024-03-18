@@ -1,3 +1,11 @@
+# 1.2.5
+
+* Removed async support (new optimizations are better)
+
+# 1.2.1 - 1.2.4
+
+* Minor bug fixes and optimizations
+
 # 1.2.0-2 Malli Support and Output Improvements
 
 Guardrails now implements all of clojure.spec, Orchestra and Malli’s combined function call validation functionality,
