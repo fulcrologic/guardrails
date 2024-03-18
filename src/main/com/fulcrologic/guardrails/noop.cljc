@@ -15,7 +15,7 @@
   WARNING: Make sure you don't need the specs at runtime for anything. Use `s/def` for those, and
   `>def` for ones that you want to disappear at runtime.
 
-  This will also eliminate the guardrails requires of things like expound, core.async, and core.stacktrace."
+  This will also eliminate the guardrails requires of things like expound, and core.stacktrace."
   #?(:cljs (:require-macros com.fulcrologic.guardrails.noop)))
 
 (def => :ret)

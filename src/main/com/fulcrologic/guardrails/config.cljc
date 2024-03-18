@@ -108,9 +108,6 @@
 (defn mode [config]
   (get config :mode :runtime))
 
-(defn async? [config]
-  (get config :async? false))
-
 (def default-config
   {;; Generates standard `defn` function definitions
    ;; by default. If you require composability with other
@@ -151,15 +148,10 @@
                                         cljs-compiler-config
                                         (System/getProperty "guardrails.enabled"))
                                 :cljs false)
-                         (let [{:keys [async? throw?] :as result} (merge {} (read-config-file) cljs-compiler-config)
-                               result (if (and async? throw?)
-                                        (dissoc result :async?)
-                                        result)]
+                         (let [result (merge {} (read-config-file) cljs-compiler-config)]
                            (when-not @warned?
                              (reset! warned? true)
                              (utils/report-info "GUARDRAILS IS ENABLED. RUNTIME PERFORMANCE WILL BE AFFECTED.")
-                             (when (and async? throw?)
-                               (utils/report-problem "INCOMPATIBLE MODES: :throw? and :async? cannot both be true. Disabling async."))
                              (utils/report-info (str "Mode: " (mode result) (when (= :runtime (mode result))
                                                                               (str "  config: " result))))
                              (utils/report-info (str "Guardrails was enabled because "

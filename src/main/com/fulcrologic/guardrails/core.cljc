@@ -17,7 +17,6 @@
        :cljs [[com.fulcrologic.guardrails.impl.externs]
               [com.fulcrologic.guardrails.utils :as utils :refer [strip-colors]]
               [goog.object :as gobj]])
-   [clojure.core.async :as async]
    [clojure.spec.alpha :as s]
    [clojure.string :as str]
    [com.fulcrologic.guardrails.config :as gr.cfg]
@@ -59,19 +58,6 @@
 
 (defn- get-global-context [] (first @!global-context))
 
-
-(defonce pending-check-channel (async/chan (async/dropping-buffer 10000)))
-
-(defonce async-go-channel
-  (async/go-loop [check (async/<! pending-check-channel)]
-    (if check
-      (do
-        (try
-          (check)
-          (catch #?(:clj Exception :cljs :default) _))
-        (recur (async/<! pending-check-channel)))
-      (println "Guardrails ASYNC LOOP STOPPED ****************************************"))))
-
 ;; runtime checking (both clj and cljs
 (defn- output-fn [data]
   (let [{:keys [level ?err msg_ ?ns-str ?file hostname_
@@ -110,7 +96,7 @@
       ((exp/custom-printer expound-options) explain-data))))
 
 (defn run-check [{:guardrails/keys [malli? compact? use-stderr? validate-fn explain-fn fqnm humanize-fn]
-                  :keys            [tap>? args? vararg? humanize-opts callsite throw? fn-name]
+                  :keys            [tap>? args? vararg? humanize-opts throw? fn-name]
                   :as              options}
                  spec
                  value]
@@ -135,7 +121,7 @@
                                                           :guardrails/compact? compact?
                                                           :guardrails/fqnm fqnm
                                                           :guardrails/args? args?))
-                e             (or callsite (ex-info "" {}))
+                e             (ex-info "" {})
                 description   (utils/problem-description
                                 (str
                                   "\nGuardrails:\n"
@@ -717,10 +703,6 @@
            :sym `(s/fdef ~fn-name ~@(generate-external-fspec bs false))
            :key `(s/def ~fn-name (s/fspec ~@(generate-external-fspec bs false))))))))
 
-(defn callsite-exception []
-  #?(:cljs (js/Error. "")
-     :clj  (AssertionError. "")))
-
 ;; The now-nano was taken from taoensso/encore. I didn't want to include that entire dep just for this one
 ;; function. The are covered by Eclipse Public License - v 1.0. See https://github.com/taoensso/encore
 #?(:cljs (def ^:no-doc js-?window (when (exists? js/window) js/window))) ; Present iff in browser
@@ -773,8 +755,7 @@
             {max-checks-per-second :guardrails/mcps
              :guardrails/keys      [use-stderr? compact? trace? stack-trace]
              :keys                 [throw? tap>? disable-exclusions?]} :config} cfg
-           {:guardrails/keys [validate-fn explain-fn humanize-fn malli?]
-            :keys            [async-checks?]} env
+           {:guardrails/keys [validate-fn explain-fn humanize-fn malli?]} env
            cljs?           (cljs-env? env)
 
            {:com.fulcrologic.guardrails.core/keys
@@ -813,44 +794,18 @@
                             :guardrails/validate-fn validate-fn
                             :guardrails/explain-fn  explain-fn
                             :guardrails/humanize-fn humanize-fn}
-           gosym           (if cljs? 'cljs.core.async/go 'clojure.core.async/go)
-           putsym          (if cljs? 'cljs.core.async/>! 'clojure.core.async/>!)
            exclusion-coord (if disable-exclusions?
                              [:undefined/function :undefined]
                              [(keyword nspc (name fn-name)) (keyword nspc)])
-           args-check      (if async-checks?
-                             `(when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
-                                (let [e# (callsite-exception)]
-                                  (~gosym
-                                    (~putsym pending-check-channel
-                                      (fn []
-                                        (when ~argspec
-                                          (run-check (assoc
-                                                       ~(assoc opts :args? true)
-                                                       :callsite e#)
-                                            ~argspec
-                                            ~arg-syms)))))))
-                             `(when ~argspec
-                                (when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
-                                  (run-check ~(assoc opts :args? true) ~argspec ~arg-syms))))
+           args-check      `(when ~argspec
+                              (when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
+                                (run-check ~(assoc opts :args? true) ~argspec ~arg-syms)))
            retspec         (gensym "retspec")
            ret             (gensym "ret")
            add-throttling? (number? max-checks-per-second)
-           ret-check       (if async-checks?
-                             `(when-not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))
-                                (let [e# (callsite-exception)]
-                                  (~gosym
-                                    (~putsym pending-check-channel
-                                      (fn []
-                                        (when ~retspec
-                                          (run-check (assoc
-                                                       ~(assoc opts :args? false)
-                                                       :callsite e#)
-                                            ~retspec
-                                            ~ret)))))))
-                             `(when (and ~retspec
-                                      (not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))))
-                                (run-check ~(assoc opts :args? false) ~retspec ~ret)))
+           ret-check       `(when (and ~retspec
+                                       (not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))))
+                              (run-check ~(assoc opts :args? false) ~retspec ~ret))
            real-function   `(fn ~'guardrails-wrapper ~raw-arg-vec ~@body-forms)
            f               (gensym "f")
            call            (if (boolean conformed-var-arg)
@@ -945,15 +900,14 @@
 #?(:clj
    (defn >defn* [env form body {:keys [private? guardrails/malli?] :as opts}]
      (let [cfg    (gr.cfg/get-env-config)
-           mode   (gr.cfg/mode cfg)
-           async? (gr.cfg/async? cfg)]
+           mode   (gr.cfg/mode cfg)]
        (cond
          (not cfg) (clean-defn 'defn body)
          (#{:copilot :pro} mode) `(do
                                     (defn ~@body)
                                     ~(gr.pro/>defn-impl env body opts))
          (#{:runtime :all} mode)
-         (cond-> (remove nil? (generate-defn body private? (assoc env :form form :async-checks? async? :guardrails/malli? malli?)))
+         (cond-> (remove nil? (generate-defn body private? (assoc env :form form :guardrails/malli? malli?)))
            (cljs-env? env) clj->cljs
            (= :all mode) (-> vec (conj (gr.pro/>defn-impl env body opts)) seq))))))
 
