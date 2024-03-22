@@ -86,7 +86,9 @@
            mode (gr.cfg/mode cfg)]
        ;; NOTE: Possibly manual override to always include them?
        (when (and cfg (#{:runtime :all} mode))
-         `(register! ~k ~v)))))
+         (if (symbol? k)
+           `(do (def ~k ~v) @gr.reg/schema-atom)
+           `(register! ~k ~v))))))
 
 (defn validate [schema value] (m/validate schema value {:registry gr.reg/registry}))
 (defn explain [schema value] (m/explain schema value {:registry gr.reg/registry}))
