@@ -10,6 +10,8 @@
        [fulcro-spec.stub :as stub]
        [malli.core :as mc])))
 
+#?(:clj (def original-conformed-stub fsp/conformed-stub))
+
 #?(:clj
    (defn conformed-stub [env sym arglist result]
      `(let [stub# (fn [~@arglist] ~result)]
@@ -19,7 +21,8 @@
              :report (fn [& args#]
                        (throw (ex-info (str "Test setup failure: Your mock of " ~(str sym) " failed to follow the schema of the function.")
                                 {:problems args#})))}
-            stub#)))))
+            stub#)
+          ~(original-conformed-stub env sym arglist result)))))
 
 #?(:clj
    (defn provided*
