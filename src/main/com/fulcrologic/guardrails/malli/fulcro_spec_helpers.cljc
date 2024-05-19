@@ -2,14 +2,13 @@
   "Fulcro spec includes when-mocking! and provided!, which do stub checking via Clojure Spec. This ns has alternatives
    that work for when you are stubbing functions that use Malli."
   #?(:cljs (:require-macros [com.fulcrologic.guardrails.malli.fulcro-spec-helpers]))
-  #?(:clj
-     (:require
-       [com.fulcrologic.guardrails.malli.registry :as gr.reg]
-       [fulcro-spec.impl.macros :as im]
-       [fulcro-spec.provided :as fsp]
-       [fulcro-spec.spec :as ffs]
-       [fulcro-spec.stub :as stub]
-       [malli.core :as mc])))
+  (:require
+    #?@(:clj [[fulcro-spec.provided :as fsp]
+              [fulcro-spec.spec :as ffs]
+              [fulcro-spec.stub :as stub]
+              [fulcro-spec.impl.macros :as im]])
+    [com.fulcrologic.guardrails.malli.registry :as gr.reg]
+    [malli.core :as mc]))
 
 #?(:clj (def original-conformed-stub fsp/conformed-stub))
 
