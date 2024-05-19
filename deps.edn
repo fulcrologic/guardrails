@@ -16,7 +16,7 @@
                        :extra-deps  {thheller/shadow-cljs        {:mvn/version "2.25.8"}
                                      ;; gnl: Clojure 1.10 is sufficient for clojure.spec, but Malli requires 1.11
                                      org.clojure/clojure         {:mvn/version "1.11.0"}
-                                     metosin/malli               {:mvn/version "0.13.0"}
+                                     metosin/malli               {:mvn/version "0.16.0"}
                                      org.clojure/tools.nrepl     {:mvn/version "0.2.13"}
                                      binaryage/devtools          {:mvn/version "1.0.6"}
                                      org.clojure/tools.namespace {:mvn/version "1.4.4"}}}}}
