@@ -173,7 +173,7 @@
   (let [env (gensym "env$")]
     `(fn [~env]
        (let [~@(mapcat
-                 (fn [sym] [sym `(com.fulcrologic.copilot.artifacts/lookup-symbol ~env '~sym)])
+                 (fn [sym] [sym `(com.fulcrologic.guardrails-analyzer.artifacts/lookup-symbol ~env '~sym)])
                  binds)]
          (fn ~@(rest fn-form))))))
 
