@@ -1,22 +1,31 @@
 {:paths   ["src/main"
            "src/clj-kondo"],
 
- :deps    {expound/expound        {:mvn/version "0.9.0"}}
+ :deps    {expound/expound {:mvn/version "0.9.0"}}
 
  :aliases {:test      {:extra-paths ["src/test" "src/test-clj-kondo"]
                        :extra-deps  {org.clojure/test.check  {:mvn/version "1.1.1"}
-                                     fulcrologic/fulcro-spec {:mvn/version "3.1.12"}
-                                     clj-kondo/clj-kondo     {:mvn/version "2023.02.17"}}}
+                                     fulcrologic/fulcro-spec {:mvn/version "3.1.14"}
+                                     lambdaisland/kaocha     {:mvn/version "1.91.1392"}
+                                     clj-kondo/clj-kondo     {:mvn/version "2025.09.22"}}}
+
+           :mcp-test
+           {:deps        {org.slf4j/slf4j-nop     {:mvn/version "2.0.17"} ;; Required for stdio server
+                          com.bhauman/clojure-mcp {:git/url "https://github.com/bhauman/clojure-mcp.git"
+                                                   :git/tag "v0.1.11-alpha"
+                                                   :git/sha "7739dba"}}
+            :extra-paths ["src/claude"]
+            :exec-fn     limited-mcp/start-mcp-server
+            :exec-args   {:start-nrepl-cmd ["/opt/homebrew/bin/clojure" "-A:test:dev" "-M:nrepl"]}}
 
            :clj-tests {:extra-paths ["src/test"]
-                       :main-opts   ["-m" "kaocha.runner"]
-                       :extra-deps  {lambdaisland/kaocha {:mvn/version "1.77.1236"}}}
+                       :main-opts   ["-m" "kaocha.runner"]}
 
            :dev       {:extra-paths ["src/dev" "src/test"]
                        :extra-deps  {thheller/shadow-cljs        {:mvn/version "2.25.8"}
                                      ;; gnl: Clojure 1.10 is sufficient for clojure.spec, but Malli requires 1.11
                                      org.clojure/clojure         {:mvn/version "1.11.0"}
-                                     metosin/malli               {:mvn/version "0.16.0"}
-                                     org.clojure/tools.nrepl     {:mvn/version "0.2.13"}
-                                     binaryage/devtools          {:mvn/version "1.0.6"}
-                                     org.clojure/tools.namespace {:mvn/version "1.4.4"}}}}}
+                                     metosin/malli               {:mvn/version "0.19.2"}
+                                     nrepl/nrepl                 {:mvn/version "1.4.0"}
+                                     binaryage/devtools          {:mvn/version "1.0.7"}
+                                     org.clojure/tools.namespace {:mvn/version "1.5.0"}}}}}

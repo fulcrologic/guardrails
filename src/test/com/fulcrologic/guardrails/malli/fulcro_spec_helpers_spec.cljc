@@ -29,8 +29,21 @@
       (g "foo")
       (catch #?(:clj Throwable :cljs :default) t
         (assertions
-          "Mocking catches errors on return value"
-          (str/starts-with? (ex-message t) "Mock of g was sent") => true)))))
+          "Mocking catches errors on argument type"
+          (str/includes? (ex-message t) "failed to follow the Spec fspec") => true
+          (contains? (ex-data t) :problems) => true)))))
+
+(specification "Clojure spec mocking return value validation"
+  (when-mocking!
+    (g x) => "not-an-int"
+
+    (try
+      (g 42)
+      (catch #?(:clj Throwable :cljs :default) t
+        (assertions
+          "Mocking catches errors on return value type"
+          (str/includes? (ex-message t) "failed to follow the Spec fspec") => true
+          (contains? (ex-data t) :problems) => true)))))
 
 (specification "Correct mocking"
   (when-mocking!
@@ -97,3 +110,24 @@
         (assertions
           "Mocking notices it"
           (contains? (ex-data t) :problems) => true)))))
+
+(specification "Mixed Malli and Spec function mocking"
+  (when-mocking!
+    (f x) => "malli-result"
+    (g x) => 100
+
+    (assertions
+      "Can mock Malli function f"
+      (f "test") => "malli-result"
+      "Can mock Spec function g"
+      (g 50) => 100))
+
+  (provided! "Mixed validation works"
+    (f x) => "result"
+    (g x) => 200
+
+    (assertions
+      "Malli validation works for f"
+      (f "input") => "result"
+      "Spec validation works for g"
+      (g 75) => 200)))

@@ -1,12 +1,14 @@
 (ns com.fulcrologic.guardrails.malli.fulcro-spec-helpers
   "Fulcro spec includes when-mocking! and provided!, which do stub checking via Clojure Spec. This ns has alternatives
-   that work for when you are stubbing functions that use Malli."
+   that work for when you are stubbing functions that use guardrails with either Malli or Clojure Spec."
   #?(:cljs (:require-macros [com.fulcrologic.guardrails.malli.fulcro-spec-helpers]))
   (:require
-    #?@(:clj [[fulcro-spec.provided :as fsp]
-              [fulcro-spec.spec :as ffs]
-              [fulcro-spec.stub :as stub]
-              [fulcro-spec.impl.macros :as im]])
+    #?@(:clj  [[fulcro-spec.provided :as fsp]
+               [fulcro-spec.spec :as ffs]
+               [fulcro-spec.stub :as stub]
+               [fulcro-spec.impl.macros :as im]
+               [clojure.spec.alpha :as s]]
+        :cljs [[cljs.spec.alpha :as s]])
     [com.fulcrologic.guardrails.malli.registry :as gr.reg]
     [malli.core :as mc]))
 
@@ -61,16 +63,72 @@
                         varargs-info (if (< arity (:min varargs-info)) (report-arity) (apply (:f varargs-info) args))
                         :else (report-arity))))))))
 
+(defn spec-instrument!
+  "Wraps a stub function with Clojure/ClojureScript Spec validation based on the function's fspec.
+   Reports validation errors via the provided report function."
+  [f fspec-sym report]
+  (if-let [fspec (s/get-spec fspec-sym)]
+    (let [args-spec (:args fspec)
+          ret-spec  (:ret fspec)
+          fn-spec   (:fn fspec)]
+      (fn [& args]
+        (when args-spec
+          (when-not (s/valid? args-spec args)
+            (report ::invalid-spec-input
+              {:spec     args-spec
+               :args     args
+               :problems (s/explain-data args-spec args)
+               :fspec    fspec})))
+        (let [value (apply f args)]
+          (when ret-spec
+            (when-not (s/valid? ret-spec value)
+              (report ::invalid-spec-output
+                {:spec     ret-spec
+                 :value    value
+                 :args     args
+                 :problems (s/explain-data ret-spec value)
+                 :fspec    fspec})))
+          (when fn-spec
+            (let [fn-check-input {:args args :ret value}]
+              (when-not (s/valid? fn-spec fn-check-input)
+                (report ::invalid-spec-fn
+                  {:spec     fn-spec
+                   :value    value
+                   :args     args
+                   :problems (s/explain-data fn-spec fn-check-input)
+                   :fspec    fspec}))))
+          value)))
+    ;; If no fspec found, return the function unchanged
+    f))
+
 #?(:clj
    (defn conformed-stub [env sym arglist result]
-     `(let [stub# (fn [~@arglist] ~result)]
-        (if-let [schema# (get (meta (var ~sym)) :malli/schema)]
-          (do
-            (instrument! stub# schema#
+     (let [;; Determine if we're in ClojureScript context at macro expansion time
+           cljs?    (:ns env)
+           spec-get (if cljs?
+                      'cljs.spec.alpha/get-spec
+                      'clojure.spec.alpha/get-spec)]
+       `(let [stub# (fn [~@arglist] ~result)]
+          (cond
+            ;; Check for Malli schema
+            (get (meta (var ~sym)) :malli/schema)
+            (let [schema# (get (meta (var ~sym)) :malli/schema)]
+              (instrument! stub# schema#
+                (fn [& args#]
+                  (throw (ex-info (str "Test setup failure: Your mock of " ~(str sym) " failed to follow the Malli schema of the function.")
+                           {:problems args#})))))
+
+            ;; Check for Spec fspec
+            ;; Note: (var ~sym) works in both Clojure (returns var) and ClojureScript (returns symbol)
+            (~spec-get (var ~sym))
+            (spec-instrument! stub# (var ~sym)
               (fn [& args#]
-                (throw (ex-info (str "Test setup failure: Your mock of " ~(str sym) " failed to follow the schema of the function.")
-                         {:problems args#})))))
-          ~(original-conformed-stub env sym arglist result)))))
+                (throw (ex-info (str "Test setup failure: Your mock of " ~(str sym) " failed to follow the Spec fspec of the function.")
+                         {:problems args#}))))
+
+            ;; Fall back to original behavior
+            :else
+            ~(original-conformed-stub env sym arglist result))))))
 
 #?(:clj
    (defn provided*
@@ -101,12 +159,18 @@
 
 #?(:clj
    (defmacro provided!
-     "Just like `provided`, but forces mocked functions to conform to the malli spec of the original function (if available)."
+     "Just like `provided`, but forces mocked functions to conform to the guardrails spec of the original function.
+     Works with both Malli schemas (via :malli/schema metadata) and Clojure Spec fspecs (via s/fdef).
+     Each mocked function is checked individually - if it has a Malli schema, Malli validation is used;
+     if it has a Spec fspec, Spec validation is used; otherwise falls back to standard provided behavior."
      [description & forms]
      (provided* &env true description forms)))
 
 #?(:clj
    (defmacro when-mocking!
-     "Just like when-mocking, but forces mocked functions to conform to the malli spec of the original function (if available)."
+     "Just like when-mocking, but forces mocked functions to conform to the guardrails spec of the original function.
+     Works with both Malli schemas (via :malli/schema metadata) and Clojure Spec fspecs (via s/fdef).
+     Each mocked function is checked individually - if it has a Malli schema, Malli validation is used;
+     if it has a Spec fspec, Spec validation is used; otherwise falls back to standard when-mocking behavior."
      [& forms]
      (provided* &env true :skip-output forms)))

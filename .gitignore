@@ -62,3 +62,4 @@ release.properties
 /.clj-kondo/*/
 .calva/output-window
 .lsp/.cache/**
+.mcp.json

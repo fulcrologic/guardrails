@@ -1,14 +1,14 @@
 (ns com.fulcrologic.guardrails.clj-kondo-hooks-test
   (:require
-   [clj-kondo.core :as clj-kondo]
-   [clojure.test :refer [deftest is]]))
+    [clj-kondo.core :as clj-kondo]
+    [clojure.test :refer [deftest is]]))
 
 (defn clj-kondo-findings [input-string]
   ;; ensure latest hook is used
   (require '[clj-kondo.impl.hooks] :reload)
   (-> input-string
-      (with-in-str
-       (clj-kondo/run!
+    (with-in-str
+      (clj-kondo/run!
         {:lint  ["-"]
          :cache false
          :config
@@ -19,11 +19,11 @@
                       com.fulcrologic.guardrails.clj-kondo-hooks/>defn}}
            :linters {:clj-kondo.fulcro.>defn/invalid-gspec {:level :error}}
            :lint-as {com.fulcrologic.guardrails.core/>def clojure.spec.alpha/def}}}))
-      (:findings)))
+    (:findings)))
 
 (deftest >defn-hook-happy-path
   (is (= []
-         (clj-kondo-findings
+        (clj-kondo-findings
           "(ns foo
   (:require
     [com.fulcrologic.guardrails.core :refer [>defn]]
@@ -79,39 +79,43 @@
 "))))
 
 (deftest >defn-hook-errors
-  (is (= [{:col      3
+  (is (= [{:end-row  8
+           :type     :clj-kondo.fulcro.>defn/invalid-gspec
+           :level    :error
+           :filename "<stdin>"
+           :col      3
            :end-col  27
-           :end-row  8
-           :filename "<stdin>"
-           :level    :error
+           :langs    ()
            :message  "Gspec requires exactly one `=>` or `:ret`"
-           :row      8
-           :type     :clj-kondo.fulcro.>defn/invalid-gspec}
-          {:col      4
+           :row      8}
+          {:end-row  15
+           :type     :clj-kondo.fulcro.>defn/invalid-gspec
+           :level    :error
+           :filename "<stdin>"
+           :col      4
            :end-col  10
-           :end-row  15
-           :filename "<stdin>"
-           :level    :error
+           :langs    ()
            :message  "Gspec requires exactly one `=>` or `:ret`"
-           :row      15
-           :type     :clj-kondo.fulcro.>defn/invalid-gspec}
-          {:col      4
+           :row      15}
+          {:end-row  23
+           :type     :clj-kondo.fulcro.>defn/invalid-gspec
+           :level    :error
+           :filename "<stdin>"
+           :col      4
            :end-col  28
-           :end-row  23
-           :filename "<stdin>"
-           :level    :error
+           :langs    ()
            :message  "Gspec requires exactly one `=>` or `:ret`"
-           :row      23
-           :type     :clj-kondo.fulcro.>defn/invalid-gspec}
-          {:col      10
-           :end-col  22
-           :end-row  23
-           :filename "<stdin>"
+           :row      23}
+          {:end-row  23
+           :type     :unresolved-symbol
            :level    :error
+           :filename "<stdin>"
+           :col      10
+           :end-col  22
+           :langs    ()
            :message  "Unresolved symbol: =wrong-sym=>"
-           :row      23
-           :type     :unresolved-symbol}]
-         (clj-kondo-findings
+           :row      23}]
+        (clj-kondo-findings
           "(ns foo
   (:require
     [com.fulcrologic.guardrails.core :refer [>defn]]

@@ -9,7 +9,7 @@
              :test-paths   ["src/test-clj-kondo"]
              :skip-meta    [:integration]
              :source-paths ["src/clj-kondo"]}]
- :reporter [fulcro-spec.reporters.terminal/fulcro-report]
+; :reporter [fulcro-spec.reporters.terminal/fulcro-report]
  :plugins  []
  :capture-output? false
  }
