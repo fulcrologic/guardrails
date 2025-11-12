@@ -106,3 +106,123 @@
           "Intentional exception from spec'd function works"
           (ex-message e) => "Intentional failure"
           (get (ex-data e) :reason) => :test)))))
+
+;; Additional test functions for comprehensive testing
+(defn h-no-schema
+  "Function without any schema - should fall back to regular provided! behavior"
+  [x]
+  x)
+
+(>defn strict-arity
+  "Function with strict arity"
+  [x y]
+  [:string :int => :string]
+  (str x y))
+
+(specification "Validation passes with correct types"
+  (provided! "Malli validation succeeds when types match"
+    (f x) => "correct"
+    (g x) => 99
+
+    (assertions
+      "Malli function works with correct types"
+      (f "input") => "correct"
+      "Spec function works with correct types"
+      (g 42) => 99)))
+
+(specification "Functions without schemas use regular provided! behavior"
+  (provided! "No validation for functions without schemas"
+    (h-no-schema x) => "anything"
+
+    (assertions
+      "Can mock function without schema"
+      (h-no-schema 123) => "anything"
+      "Can pass any type"
+      (h-no-schema "string") => "anything")))
+
+(specification "Execution counts work with validation"
+  (provided! "Scripted mocking with validation"
+    (f x) =1x=> "first"
+    (f x) =1x=> "second"
+    (f x) => "rest"
+
+    (assertions
+      "First call"
+      (f "a") => "first"
+      "Second call"
+      (f "b") => "second"
+      "Third call"
+      (f "c") => "rest"
+      "Fourth call"
+      (f "d") => "rest")))
+
+(specification "Multi-arity validation - one arg only"
+  (provided! "Single arity works"
+    (f x) => "one-arg"
+
+    (assertions
+      "One arity validated"
+      (f "a") => "one-arg"
+      (f "b") => "one-arg")))
+
+(specification "Multi-arity validation - two args separately"
+  (provided! "Two-arg arity works"
+    (f x y) => "two-args"
+
+    (assertions
+      "Two arity validated"
+      (f "a" "b") => "two-args")))
+
+(specification "Multi-arity validation - varargs separately"
+  (provided! "Varargs arity works"
+    (f x y z & rest) => "var-args"
+
+    (assertions
+      "Varargs arity validated"
+      (f "a" "b" "c" "d" "e") => "var-args")))
+
+(specification "Multi-arity validation - mixed arities in same test"
+  ;; This test checks if we can mock multiple arities of the same function
+  ;; in a single provided! block
+  (provided! "Can mock different arities together"
+    (f x) =1x=> "one"
+    (f x y) =1x=> "two"
+
+    (assertions
+      "Can call one-arg version"
+      (f "a") => "one"
+      "Can call two-arg version"
+      (f "a" "b") => "two")))
+
+
+;; Test for nil values
+(>defn maybe-string
+  "Function that accepts optional string"
+  [x]
+  [[:maybe :string] => [:maybe :string]]
+  x)
+
+(specification "Functions with maybe/optional schemas"
+  (provided! "Nil values work with maybe schemas"
+    (maybe-string x) => nil
+
+    (assertions
+      "Can return nil"
+      (maybe-string nil) => nil
+      "Can pass nil"
+      (maybe-string "test") => nil)))
+
+;; Test for complex nested schemas
+(>defn nested-data
+  "Function with complex nested schema"
+  [data]
+  [[:map [:name :string] [:age :int]] => :string]
+  (:name data))
+
+(specification "Complex nested schemas validate"
+  (provided! "Nested map schemas work"
+    (nested-data d) => "John"
+
+    (assertions
+      "Map validation works"
+      (nested-data {:name "Jane" :age 30}) => "John")))
