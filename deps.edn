@@ -5,7 +5,7 @@
 
  :aliases {:test      {:extra-paths ["src/test" "src/test-clj-kondo"]
                        :extra-deps  {org.clojure/test.check  {:mvn/version "1.1.1"}
-                                     fulcrologic/fulcro-spec {:mvn/version "3.1.14"}
+                                     fulcrologic/fulcro-spec {:mvn/version "3.1.16-SNAPSHOT"}
                                      lambdaisland/kaocha     {:mvn/version "1.91.1392"}
                                      clj-kondo/clj-kondo     {:mvn/version "2025.09.22"}}}
 
@@ -16,7 +16,7 @@
                                                    :git/sha "7739dba"}}
             :extra-paths ["src/claude"]
             :exec-fn     limited-mcp/start-mcp-server
-            :exec-args   {:start-nrepl-cmd ["/opt/homebrew/bin/clojure" "-A:test:dev" "-M:nrepl"]}}
+            :exec-args   {:start-nrepl-cmd ["/opt/homebrew/bin/clojure" "-A:fspec-dev:test:dev" "-M:nrepl"]}}
 
            :clj-tests {:extra-paths ["src/test"]
                        :main-opts   ["-m" "kaocha.runner"]}

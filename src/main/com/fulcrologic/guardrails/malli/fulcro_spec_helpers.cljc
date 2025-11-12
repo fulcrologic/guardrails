@@ -36,16 +36,29 @@
               [wrap-input wrap-output wrap-guard] (mc/-vmap #(contains? scope %) [:input :output :guard])]
           (fn [& args]
             (let [args (vec args), arity (count args)]
-              (when wrap-input
-                (when-not (<= min arity (or max 1000))
-                  (report ::invalid-arity {:arity arity, :arities #{{:min min :max max}}, :args args, :input input, :schema schema}))
-                (when-not (validate-input args)
-                  (report ::invalid-input {:input input, :args args, :schema schema})))
+              ;; Validate inputs - catch validation exceptions only
+              (try
+                (when wrap-input
+                  (when-not (<= min arity (or max 1000))
+                    (report ::invalid-arity {:arity arity, :arities #{{:min min :max max}}, :args args, :input input, :schema schema}))
+                  (when-not (validate-input args)
+                    (report ::invalid-input {:input input, :args args, :schema schema})))
+                (catch #?(:clj Exception :cljs :default) e
+                  (let [msg #?(:clj (or (ex-message e) "")
+                               :cljs (or (ex-message e) (str e)))]
+                    (report ::malli-error {:args args, :original-error msg, :schema schema}))))
+              ;; Call stub function - let intentional exceptions propagate
               (let [value (apply f args)]
-                (when (and wrap-output (not (validate-output value)))
-                  (report ::invalid-output {:output output, :value value, :args args, :schema schema}))
-                (when (and wrap-guard (not (validate-guard [args value])))
-                  (report ::invalid-guard {:guard guard, :value value, :args args, :schema schema}))
+                ;; Validate outputs - catch validation exceptions only
+                (try
+                  (when (and wrap-output (not (validate-output value)))
+                    (report ::invalid-output {:output output, :value value, :args args, :schema schema}))
+                  (when (and wrap-guard (not (validate-guard [args value])))
+                    (report ::invalid-guard {:guard guard, :value value, :args args, :schema schema}))
+                  (catch #?(:clj Exception :cljs :default) e
+                    (let [msg #?(:clj (or (ex-message e) "")
+                                 :cljs (or (ex-message e) (str e)))]
+                      (report ::malli-error {:value value, :args args, :original-error msg, :schema schema}))))
                 value))))
     :function (let [arity->info  (->> (mc/children schema {:registry gr.reg/registry})
                                    (map (fn [s] (assoc (-function-info s {:registry gr.reg/registry}) :f (instrument! f s report))))
@@ -72,31 +85,59 @@
           ret-spec  (:ret fspec)
           fn-spec   (:fn fspec)]
       (fn [& args]
-        (when args-spec
-          (when-not (s/valid? args-spec args)
-            (report ::invalid-spec-input
-              {:spec     args-spec
-               :args     args
-               :problems (s/explain-data args-spec args)
-               :fspec    fspec})))
-        (let [value (apply f args)]
-          (when ret-spec
-            (when-not (s/valid? ret-spec value)
-              (report ::invalid-spec-output
-                {:spec     ret-spec
-                 :value    value
+        ;; Validate inputs - catch validation exceptions only
+        (try
+          (when args-spec
+            (when-not (s/valid? args-spec args)
+              (report ::invalid-spec-input
+                {:spec     args-spec
                  :args     args
-                 :problems (s/explain-data ret-spec value)
+                 :problems (s/explain-data args-spec args)
                  :fspec    fspec})))
-          (when fn-spec
-            (let [fn-check-input {:args args :ret value}]
-              (when-not (s/valid? fn-spec fn-check-input)
-                (report ::invalid-spec-fn
-                  {:spec     fn-spec
+          (catch #?(:clj Exception :cljs :default) e
+            (let [msg #?(:clj (or (ex-message e) "")
+                         :cljs (or (ex-message e) (str e)))]
+              (when (or #?(:clj  (.contains ^String msg "Unable to resolve spec")
+                           :cljs (and (string? msg) (clojure.string/includes? msg "Unable to resolve spec")))
+                      #?(:clj  (.contains ^String msg "no method")
+                         :cljs (and (string? msg) (clojure.string/includes? msg "no method"))))
+                (report ::spec-resolution-error
+                  {:fspec-sym      fspec-sym
+                   :args           args
+                   :original-error msg})))))
+        ;; Call stub function - let intentional exceptions propagate
+        (let [value (apply f args)]
+          ;; Validate outputs - catch validation exceptions only
+          (try
+            (when ret-spec
+              (when-not (s/valid? ret-spec value)
+                (report ::invalid-spec-output
+                  {:spec     ret-spec
                    :value    value
                    :args     args
-                   :problems (s/explain-data fn-spec fn-check-input)
-                   :fspec    fspec}))))
+                   :problems (s/explain-data ret-spec value)
+                   :fspec    fspec})))
+            (when fn-spec
+              (let [fn-check-input {:args args :ret value}]
+                (when-not (s/valid? fn-spec fn-check-input)
+                  (report ::invalid-spec-fn
+                    {:spec     fn-spec
+                     :value    value
+                     :args     args
+                     :problems (s/explain-data fn-spec fn-check-input)
+                     :fspec    fspec}))))
+            (catch #?(:clj Exception :cljs :default) e
+              (let [msg #?(:clj (or (ex-message e) "")
+                           :cljs (or (ex-message e) (str e)))]
+                (when (or #?(:clj  (.contains ^String msg "Unable to resolve spec")
+                             :cljs (and (string? msg) (clojure.string/includes? msg "Unable to resolve spec")))
+                        #?(:clj  (.contains ^String msg "no method")
+                           :cljs (and (string? msg) (clojure.string/includes? msg "no method"))))
+                  (report ::spec-resolution-error
+                    {:fspec-sym      fspec-sym
+                     :value          value
+                     :args           args
+                     :original-error msg})))))
           value)))
     ;; If no fspec found, return the function unchanged
     f))
@@ -114,17 +155,30 @@
             (get (meta (var ~sym)) :malli/schema)
             (let [schema# (get (meta (var ~sym)) :malli/schema)]
               (instrument! stub# schema#
-                (fn [& args#]
-                  (throw (ex-info (str "Test setup failure: Your mock of " ~(str sym) " failed to follow the Malli schema of the function.")
-                           {:problems args#})))))
+                (fn [error-type# error-data#]
+                  ;; Record the validation problem instead of throwing
+                  (when stub/*validation-problems*
+                    (swap! stub/*validation-problems* conj
+                      {:message    (str "Mock validation failed for " ~(str sym)
+                                     ": Malli schema violation")
+                       :error-type error-type#
+                       :details    (dissoc error-data# :schema :input :output :guard)})))))
 
             ;; Check for Spec fspec
             ;; Note: (var ~sym) works in both Clojure (returns var) and ClojureScript (returns symbol)
             (~spec-get (var ~sym))
             (spec-instrument! stub# (var ~sym)
-              (fn [& args#]
-                (throw (ex-info (str "Test setup failure: Your mock of " ~(str sym) " failed to follow the Spec fspec of the function.")
-                         {:problems args#}))))
+              (fn [error-type# error-data#]
+                ;; Record the validation problem instead of throwing
+                (when stub/*validation-problems*
+                  (swap! stub/*validation-problems* conj
+                    {:message    (str "Mock validation failed for " ~(str sym)
+                                   ": " (or (:original-error error-data#)
+                                          (str error-type#)))
+                     :error-type error-type#
+                     :details    {:problems (:problems error-data#)
+                                  :args     (:args error-data#)
+                                  :value    (:value error-data#)}}))))
 
             ;; Fall back to original behavior
             :else
