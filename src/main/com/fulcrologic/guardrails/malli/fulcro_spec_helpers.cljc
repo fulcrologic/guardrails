@@ -1,5 +1,10 @@
 (ns com.fulcrologic.guardrails.malli.fulcro-spec-helpers
-  "Fulcro spec includes when-mocking! and provided!, which do stub checking via Clojure Spec. This ns has alternatives
+  "DEPRECATED: The when-mocking! and provided! macros in this namespace are deprecated.
+   Use `fulcro-spec.core/when-mocking!` and `fulcro-spec.core/provided!` instead,
+   which now have the same functionality and are maintained in fulcro-spec.
+
+   Original description:
+   Fulcro spec includes when-mocking! and provided!, which do stub checking via Clojure Spec. This ns has alternatives
    that work for when you are stubbing functions that use guardrails with either Malli or Clojure Spec."
   #?(:cljs (:require-macros [com.fulcrologic.guardrails.malli.fulcro-spec-helpers]))
   (:require
@@ -212,8 +217,10 @@
                     result#)))))))))
 
 #?(:clj
-   (defmacro provided!
-     "Just like `provided`, but forces mocked functions to conform to the guardrails spec of the original function.
+   (defmacro ^:deprecated provided!
+     "DEPRECATED: Use `fulcro-spec.core/provided!` instead, which has the same functionality.
+
+     Just like `provided`, but forces mocked functions to conform to the guardrails spec of the original function.
      Works with both Malli schemas (via :malli/schema metadata) and Clojure Spec fspecs (via s/fdef).
      Each mocked function is checked individually - if it has a Malli schema, Malli validation is used;
      if it has a Spec fspec, Spec validation is used; otherwise falls back to standard provided behavior."
@@ -221,8 +228,10 @@
      (provided* &env true description forms)))
 
 #?(:clj
-   (defmacro when-mocking!
-     "Just like when-mocking, but forces mocked functions to conform to the guardrails spec of the original function.
+   (defmacro ^:deprecated when-mocking!
+     "DEPRECATED: Use `fulcro-spec.core/when-mocking!` instead, which has the same functionality.
+
+     Just like when-mocking, but forces mocked functions to conform to the guardrails spec of the original function.
      Works with both Malli schemas (via :malli/schema metadata) and Clojure Spec fspecs (via s/fdef).
      Each mocked function is checked individually - if it has a Malli schema, Malli validation is used;
      if it has a Spec fspec, Spec validation is used; otherwise falls back to standard when-mocking behavior."

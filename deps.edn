@@ -5,7 +5,7 @@
 
  :aliases {:test      {:extra-paths ["src/test" "src/test-clj-kondo"]
                        :extra-deps  {org.clojure/test.check  {:mvn/version "1.1.1"}
-                                     fulcrologic/fulcro-spec {:mvn/version "3.1.16-SNAPSHOT"}
+                                     fulcrologic/fulcro-spec {:mvn/version "3.1.16"}
                                      lambdaisland/kaocha     {:mvn/version "1.91.1392"}
                                      clj-kondo/clj-kondo     {:mvn/version "2025.09.22"}}}
 

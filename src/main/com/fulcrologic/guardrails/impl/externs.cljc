@@ -122,3 +122,81 @@
        (let [{::gr.reg/keys [fn-ref]} (function-info qualified-symbol)]
          (apply fn-ref args))
        (throw (IllegalArgumentException. (str qualified-symbol " is not a pure function."))))))
+
+;; ============================================================================
+;; Call Graph Analysis
+;; ============================================================================
+
+(defn get-externs
+  "Returns the externs map for the given qualified function symbol, or nil if not found."
+  [fn-sym]
+  (let [ns-str (namespace fn-sym)
+        name-sym (symbol (name fn-sym))]
+    (get-in @externs-registry [ns-str name-sym])))
+
+(defn in-scope?
+  "Returns true if the symbol's namespace starts with one of the scope prefixes."
+  [sym scope-ns-prefixes]
+  (when-let [ns (namespace sym)]
+    (some #(clojure.string/starts-with? ns %) scope-ns-prefixes)))
+
+(defn direct-calls
+  "Returns set of qualified symbols that fn-sym directly calls within scope.
+   Only includes functions that are in the function-registry (guardrailed functions)
+   AND whose namespace matches one of the scope-ns-prefixes.
+   Excludes the function itself (self-references from >defn processing).
+
+   fn-sym - Fully qualified symbol of the function
+   scope-ns-prefixes - Set of namespace prefix strings to include (e.g. #{\"myapp\"})"
+  [fn-sym scope-ns-prefixes]
+  (when-let [externs (get-externs fn-sym)]
+    (->> externs
+         (vals)
+         (remove ::gr.reg/macro?)
+         (map ::gr.reg/extern-name)
+         (map (fn [quoted-sym]
+                ;; extern-name is stored as (quote sym)
+                (if (and (seq? quoted-sym) (= 'quote (first quoted-sym)))
+                  (second quoted-sym)
+                  quoted-sym)))
+         (filter #(in-scope? % scope-ns-prefixes))
+         (remove #(= % fn-sym))  ;; Exclude self-references
+         (into #{}))))
+
+(defn all-in-scope-functions
+  "Returns all function symbols defined with guardrails in namespaces matching scope prefixes."
+  [scope-ns-prefixes]
+  (->> @function-registry
+       (mapcat (fn [[ns-str fns]]
+                 (when (some #(clojure.string/starts-with? ns-str %) scope-ns-prefixes)
+                   (map (fn [[fn-name _]]
+                          (symbol ns-str (str fn-name)))
+                        fns))))
+       (into #{})))
+
+(defn transitive-calls
+  "Returns all functions transitively called by fn-sym within scope.
+   Includes fn-sym itself. Only includes guardrailed functions in scope.
+
+   fn-sym - Fully qualified symbol of the function
+   scope-ns-prefixes - Set of namespace prefix strings to include"
+  [fn-sym scope-ns-prefixes]
+  (loop [to-visit #{fn-sym}
+         visited #{}]
+    (if (empty? to-visit)
+      visited
+      (let [current (first to-visit)
+            calls (or (direct-calls current scope-ns-prefixes) #{})]
+        (recur (into (disj to-visit current) (remove visited calls))
+               (conj visited current))))))
+
+(defn call-graph
+  "Returns a map of {fn-sym -> #{called-fn-syms}} for all guardrailed functions
+   in the given namespace scope.
+
+   scope-ns-prefixes - Set of namespace prefix strings to include"
+  [scope-ns-prefixes]
+  (let [all-fns (all-in-scope-functions scope-ns-prefixes)]
+    (into {}
+          (for [fn-sym all-fns]
+            [fn-sym (direct-calls fn-sym scope-ns-prefixes)]))))
