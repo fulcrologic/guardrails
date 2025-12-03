@@ -9,12 +9,12 @@
 (ns ^:no-doc com.fulcrologic.guardrails.utils
   #?(:cljs (:require-macros com.fulcrologic.guardrails.utils))
   (:require
-    #?(:clj [clojure.stacktrace :as st])
-    [clojure.string :as str]
-    [clojure.walk :as walk])
+   #?(:clj [clojure.stacktrace :as st])
+   [clojure.string :as str]
+   [clojure.walk :as walk])
   #?(:clj
      (:import
-       [java.lang Throwable])))
+      [java.lang Throwable])))
 
 (defn cljs-env? [env] (boolean (:ns env)))
 
@@ -56,7 +56,6 @@
                                   %)))]
      (walk/postwalk replace-namespace form))))
 
-
 (defn get-file-position
   [env]
   (if (cljs-env? env)
@@ -65,20 +64,17 @@
     ;; TODO implement for clojure
     nil))
 
-
 (defn get-call-context
   ([env]
    (get-call-context env nil))
   ([env label]
    (str (when label (str label " – "))
-     (get-ns-name env)
-     ":"
-     (get-file-position env))))
-
+        (get-ns-name env)
+        ":"
+        (get-file-position env))))
 
 (defn gen-exception [env msg]
   `(throw (~(if (cljs-env? env) 'js/Error. 'Exception.) ~msg)))
-
 
 (defn devtools-config-override
   []
@@ -87,9 +83,9 @@
                           :min-expandable-sequable-count-for-well-known-types 2}
          left-adjust#    (str "margin-left: -17px;")]
      (merge current-config#
-       (into overrides# (for [k# [:header-style]
-                              :let [v# (get current-config# k#)]]
-                          [k# (str v# left-adjust#)])))))
+            (into overrides# (for [k# [:header-style]
+                                   :let [v# (get current-config# k#)]]
+                               [k# (str v# left-adjust#)])))))
 
 (defn map-vals [f m] (if (nil? m) {} (reduce-kv (fn [m k v] (assoc m k (f v))) m m)))
 (defn map-keys [f m] (if (nil? m) {} (reduce-kv (fn [m k v] (assoc m (f k) v)) {} m)))
@@ -119,7 +115,6 @@
 (let [ansi-color-regex #"\033\[[0-9;]*m"]
   (defn strip-colors [s]
     (clojure.string/replace s ansi-color-regex "")))
-
 
 ;; ADR: Printing to *err* during the compilation process breaks with nREPL, so we don't
 ;;
@@ -178,8 +173,8 @@
 (defn- elide-element? [e]
   #?(:clj  (let [ele-name (.getClassName ^StackTraceElement e)]
              (or
-               (str/includes? ele-name "guardrails_wrapper")
-               (some (fn [filter] (str/starts-with? ele-name filter)) *stacktrace-filters*)))
+              (str/includes? ele-name "guardrails_wrapper")
+              (some (fn [filter] (str/starts-with? ele-name filter)) *stacktrace-filters*)))
      :cljs false))
 
 #?(:clj
@@ -226,34 +221,34 @@
   ([fnsym] (last-failure fnsym true))
   ([fnsym prune?]
    (some-> @-last-failure-map
-     (get (symbol fnsym))
-     (stack-trace prune?))))
+           (get (symbol fnsym))
+           (stack-trace prune?))))
 
 (defn record-failure [str-or-sym e]
   (vswap! -last-failure-map assoc (symbol str-or-sym) e))
 
 (defn backtrace-str []
   (str/join "\n"
-    (for [{:keys [f args]} (current-backtrace)
-          :let [call (apply list (into [f] args))]]
-      (str "    " (try (pr-str call)
-                       (catch #?(:clj Throwable :cljs :default) _))))))
+            (for [{:keys [f args]} (current-backtrace)
+                  :let [call (apply list (into [f] args))]]
+              (str "    " (try (pr-str call)
+                               (catch #?(:clj Throwable :cljs :default) _))))))
 
 (defn problem-description [message callsite-ex {stack-trace-option :guardrails/stack-trace
                                                 :guardrails/keys   [fqnm trace?] :as options}]
   (cond-> (str message "\n")
     callsite-ex (cond->
-                  trace? (str "  GR functions on stack. (" `last-failure " '" (or fqnm "fn-sym") ") for full stack:\n" (backtrace-str) "\n")
-                  :and (str (case stack-trace-option
-                              :none nil
-                              :prune (str
-                                       "\nPruned Stack Trace (see `gr.utils/last-failure-stacktrace` for full trace)\n\n"
-                                       (str/join " called by " (map pr-str
-                                                                 (stack-trace callsite-ex true)))
-                                       "\n")
-                              (str/join "\n"
-                                (stack-trace callsite-ex false)))
-                         "\n"))))
+                 trace? (str "  GR functions on stack. (" `last-failure " '" (or fqnm "fn-sym") ") for full stack:\n" (backtrace-str) "\n")
+                 :and (str (case stack-trace-option
+                             :none nil
+                             :prune (str
+                                     "\nPruned Stack Trace (see `gr.utils/last-failure-stacktrace` for full trace)\n\n"
+                                     (str/join " called by " (map pr-str
+                                                                  (stack-trace callsite-ex true)))
+                                     "\n")
+                             (str/join "\n"
+                                       (stack-trace callsite-ex false)))
+                           "\n"))))
 
 (defn report-problem
   ([message] (report-problem message nil {}))
@@ -261,8 +256,8 @@
                          :guardrails/keys   [fqnm trace?] :as options}]
    (println (problem-description message callsite-ex options))))
 
-(defn report-exception [e message]
-  (println (str message "\n" (ex-message e) "\n" (some-> e stacktrace))))
+(defn report-exception [e message fqnm]
+  (println (str message fqnm ": " (ex-message e))))
 
 (def ^:dynamic *backtrace* nil)
 
@@ -321,9 +316,9 @@
           start     (long (aget backtrace 0))
           sz        (long (dec (count backtrace)))]
       (vec
-        (for [n (range 1 (inc sz))
-              :let [pos   (inc (long (mod (- start (long n)) sz)))
-                    entry (aget backtrace pos)]
-              :when (not= entry empty-entry)]
-          {:f    (backtrace-entry-function entry)
-           :args (backtrace-entry-args entry)})))))
+       (for [n (range 1 (inc sz))
+             :let [pos   (inc (long (mod (- start (long n)) sz)))
+                   entry (aget backtrace pos)]
+             :when (not= entry empty-entry)]
+         {:f    (backtrace-entry-function entry)
+          :args (backtrace-entry-args entry)})))))
