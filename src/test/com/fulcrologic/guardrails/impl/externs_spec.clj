@@ -2,7 +2,7 @@
   (:require
     [com.fulcrologic.guardrails.impl.externs :as gr.externs]
     [com.fulcrologic.guardrails.registry :as gr.reg]
-    [fulcro-spec.core :refer [specification behavior assertions when-mocking component]]))
+    [fulcro-spec.core :refer [assertions behavior specification when-mocking]]))
 
 (specification "extern-symbols"
   (when-mocking
@@ -36,13 +36,13 @@
                                                  ::gr.reg/macro?      false}}}
      "myapp.util" {'format {''clojure.core/str {::gr.reg/extern-name '(quote clojure.core/str)
                                                 ::gr.reg/macro?      false}}}
-     "other.ns"   {'foo    {''myapp.core/main  {::gr.reg/extern-name '(quote myapp.core/main)
-                                                ::gr.reg/macro?      false}}}})
+     "other.ns"   {'foo {''myapp.core/main {::gr.reg/extern-name '(quote myapp.core/main)
+                                            ::gr.reg/macro?      false}}}})
   (reset! gr.externs/function-registry
     {"myapp.core" {'main   {::gr.reg/fn-name 'main}
                    'helper {::gr.reg/fn-name 'helper}}
      "myapp.util" {'format {::gr.reg/fn-name 'format}}
-     "other.ns"   {'foo    {::gr.reg/fn-name 'foo}}}))
+     "other.ns"   {'foo {::gr.reg/fn-name 'foo}}}))
 
 (defn cleanup-test-registries! []
   (reset! gr.externs/externs-registry {})

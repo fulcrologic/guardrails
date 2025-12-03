@@ -179,10 +179,18 @@
                                   (get-in @cljs-env/*compiler* [:options :external-config :guardrails]))
            mode-config #?(:cljs nil
                           :clj  (when-let [mode (System/getProperty "guardrails.mode")]
-                                  (let [?mode (read-string mode)]
-                                    (if (#{:runtime :pro :all :copilot} ?mode)
+                                  (let [?mode (try
+                                                (let [parsed (read-string mode)]
+                                                  (if (keyword? parsed)
+                                                    parsed
+                                                    (keyword parsed)))
+                                                (catch Exception _
+                                                  (keyword mode)))]
+                                    (if (#{:runtime :pro :all} ?mode)
                                       {:mode ?mode}
-                                      (.println System/err (format "Unknown guardrails mode %s, defaulting to :runtime" mode))))))]
+                                      (do
+                                        (.println System/err (format "Unknown guardrails mode %s, defaulting to :runtime" mode))
+                                        {:mode :runtime})))))]
        #?(:clj (when (and result cljs-env/*compiler*)
                  (let [production? (contains? #{:advanced :whitespace :simple}
                                      (get-in @cljs-env/*compiler* [:options :optimizations]))]

@@ -7,7 +7,7 @@
 ;; You must not remove this notice, or any other, from this software.
 
 (ns ^:no-doc com.fulcrologic.guardrails.stubs.ana-api
-  (:refer-clojure :exclude [find-ns ns-interns all-ns resolve]))
+  (:refer-clojure :exclude [all-ns find-ns ns-interns resolve]))
 
 (defn find-ns [ns] nil)
 (defn ns-interns [ns] nil)

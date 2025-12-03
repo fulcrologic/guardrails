@@ -26,14 +26,14 @@
    (defmacro ? [& forms]))
 
 #?(:clj (defmacro >defn
-   [& forms]
-   `(defn ~@forms)))
+          [& forms]
+          `(defn ~@forms)))
 
 #?(:clj (defmacro >defn- [& forms] `(defn- ~@forms)))
 
 #?(:clj (defmacro >def
-   ([k spec-form])
-   ([k _doc spec-form])))
+          ([k spec-form])
+          ([k _doc spec-form])))
 
 #?(:clj (defmacro >fdef [& forms]))
 

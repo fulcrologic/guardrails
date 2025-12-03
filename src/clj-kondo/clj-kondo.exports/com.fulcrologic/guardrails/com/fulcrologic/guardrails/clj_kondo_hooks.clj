@@ -68,7 +68,7 @@
                      (args+gspec+body args))
         post-name  (cond->> post-docs
                      ?docstring (list* ?docstring)
-                     ?attr-map  (list* ?attr-map))
+                     ?attr-map (list* ?attr-map))
         new-node   (api/list-node
                      (list*
                        (api/token-node 'defn)

@@ -9,12 +9,12 @@
 (ns ^:no-doc com.fulcrologic.guardrails.utils
   #?(:cljs (:require-macros com.fulcrologic.guardrails.utils))
   (:require
-   #?(:clj [clojure.stacktrace :as st])
-   [clojure.string :as str]
-   [clojure.walk :as walk])
+    #?(:clj [clojure.stacktrace :as st])
+    [clojure.string :as str]
+    [clojure.walk :as walk])
   #?(:clj
      (:import
-      [java.lang Throwable])))
+       [java.lang Throwable])))
 
 (defn cljs-env? [env] (boolean (:ns env)))
 
@@ -202,7 +202,7 @@
    #?(:clj  (let [st     (.getStackTrace ^Throwable tr)
                   result []]
               (loop [[e & st] (next st)
-                     n        0
+                     n            0
                      final-result result]
                 (cond
                   (and prune? (> n 4)) final-result
@@ -318,8 +318,8 @@
   []
   (when *backtrace*
     (let [backtrace (hint-backtrace *backtrace*)
-          start (long (aget backtrace 0))
-          sz    (long (dec (count backtrace)))]
+          start     (long (aget backtrace 0))
+          sz        (long (dec (count backtrace)))]
       (vec
         (for [n (range 1 (inc sz))
               :let [pos   (inc (long (mod (- start (long n)) sz)))

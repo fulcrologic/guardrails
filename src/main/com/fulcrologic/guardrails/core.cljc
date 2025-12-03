@@ -10,17 +10,17 @@
 (ns com.fulcrologic.guardrails.core
   #?(:cljs (:require-macros com.fulcrologic.guardrails.core))
   (:require
-   #?@(:clj  [[clojure.set :as set]
-              [clojure.walk :as walk]
-              [com.fulcrologic.guardrails.impl.pro :as gr.pro]
-              [com.fulcrologic.guardrails.utils :as utils :refer [cljs-env? clj->cljs strip-colors]]]
-       :cljs [[com.fulcrologic.guardrails.impl.externs]
-              [com.fulcrologic.guardrails.utils :as utils :refer [strip-colors]]
-              [goog.object :as gobj]])
-   [clojure.spec.alpha :as s]
-   [clojure.string :as str]
-   [com.fulcrologic.guardrails.config :as gr.cfg]
-   [expound.alpha :as exp]))
+    #?@(:clj  [[clojure.set :as set]
+               [clojure.walk :as walk]
+               [com.fulcrologic.guardrails.impl.pro :as gr.pro]
+               [com.fulcrologic.guardrails.utils :as utils :refer [cljs-env? clj->cljs strip-colors]]]
+        :cljs [[com.fulcrologic.guardrails.impl.externs]
+               [com.fulcrologic.guardrails.utils :as utils :refer [strip-colors]]
+               [goog.object :as gobj]])
+    [clojure.spec.alpha :as s]
+    [clojure.string :as str]
+    [com.fulcrologic.guardrails.config :as gr.cfg]
+    [expound.alpha :as exp]))
 
 ;; It doesn't actually matter what these are bound to, they are stripped by
 ;; the macros they're used in and never end up in the final code. This is just
@@ -804,7 +804,7 @@
            ret             (gensym "ret")
            add-throttling? (number? max-checks-per-second)
            ret-check       `(when (and ~retspec
-                                       (not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))))
+                                    (not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))))
                               (run-check ~(assoc opts :args? false) ~retspec ~ret))
            real-function   `(fn ~'guardrails-wrapper ~raw-arg-vec ~@body-forms)
            f               (gensym "f")
@@ -899,13 +899,13 @@
 
 #?(:clj
    (defn >defn* [env form body {:keys [private? guardrails/malli?] :as opts}]
-     (let [cfg    (gr.cfg/get-env-config)
-           mode   (gr.cfg/mode cfg)]
+     (let [cfg  (gr.cfg/get-env-config)
+           mode (gr.cfg/mode cfg)]
        (cond
          (not cfg) (clean-defn 'defn body)
-         (#{:copilot :pro} mode) `(do
-                                    (defn ~@body)
-                                    ~(gr.pro/>defn-impl env body opts))
+         (= :pro mode) `(do
+                          (defn ~@body)
+                          ~(gr.pro/>defn-impl env body opts))
          (#{:runtime :all} mode)
          (cond-> (remove nil? (generate-defn body private? (assoc env :form form :guardrails/malli? malli?)))
            (cljs-env? env) clj->cljs
@@ -944,7 +944,7 @@
   (assert (true? (:private (meta #'test-function))))
 
   (>defn test-function2 [] [=> nil?] nil)
-  (assert (nil? (:private (meta #'test-function2)))),)
+  (assert (nil? (:private (meta #'test-function2)))))
 
 #?(:clj
    (s/fdef >defn- :args ::>defn-args))
@@ -980,7 +980,7 @@
      [& forms]
      (when-let [cfg (gr.cfg/get-env-config)]
        `(do
-          ~(when (#{:pro :copilot :all} (gr.cfg/mode cfg))
+          ~(when (#{:pro :all} (gr.cfg/mode cfg))
              (gr.pro/>fdef-impl &env forms))
           ~(cond-> (remove nil? (generate-fdef &env forms))
              (cljs-env? &env) clj->cljs)))))

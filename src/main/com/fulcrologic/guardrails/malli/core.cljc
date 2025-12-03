@@ -14,13 +14,11 @@
     [malli.error :as me]
     [malli.registry]))
 
-
 ;;; Operators ;;;
 
 (def => :ret)
 (def | :st)
 (def <- :gen)
-
 
 ;;; Syntax specs
 
@@ -58,14 +56,12 @@
        :fun ::gr.core/pred-fn
        :list seq?)))
 
-
 ;;; Schema definition helpers
 
 #?(:clj
    (defmacro ? [& forms]
      (cond-> `[:maybe ~@forms]
        (cljs-env? &env) clj->cljs)))
-
 
 (def ^:dynamic *coll-check-limit* #?(:clj s/*coll-check-limit* :cljs 4))
 
@@ -76,7 +72,6 @@
      ([schema sample-limit]
       (cond-> `[:and coll? [:fn #(m/validate [:sequential ~schema] (take ~sample-limit %))]]
         (cljs-env? &env) clj->cljs))))
-
 
 ;;; Main macros
 
@@ -139,7 +134,6 @@
       (str "  " (str/join "\n  " lines)))
     (verbose-humanize-schema explain-data opts)))
 
-
 #?(:clj
    (do
      (defmacro >defn
@@ -153,7 +147,6 @@
                                :guardrails/humanize-fn humanize-schema})]
          (gr.core/>defn* env &form forms {:private? false :guardrails/malli? true})))
      (s/fdef >defn :args ::gr.core/>defn-args)))
-
 
 #?(:clj
    (do
@@ -169,7 +162,6 @@
          (gr.core/>defn* env &form forms {:private? true :guardrails/malli? true})))
      (s/fdef >defn- :args ::gr.core/>defn-args)))
 
-
 #?(:clj
    (do
      (defmacro >fdef
@@ -181,7 +173,7 @@
        (when-let [cfg (gr.cfg/get-env-config)]
          (let [env (assoc &env :guardrails/malli? true)]
            `(do
-              ~(when (#{:pro :copilot :all} (gr.cfg/mode cfg))
+              ~(when (#{:pro :all} (gr.cfg/mode cfg))
                  (gr.pro/>fdef-impl env forms))
               ~(cond-> (remove nil? (gr.core/generate-fdef env forms))
                  (cljs-env? &env) clj->cljs)))))

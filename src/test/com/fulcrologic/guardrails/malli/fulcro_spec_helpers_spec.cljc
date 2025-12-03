@@ -1,7 +1,5 @@
 (ns com.fulcrologic.guardrails.malli.fulcro-spec-helpers-spec
   (:require
-    [clojure.spec.alpha :as s]
-    [clojure.string :as str]
     [com.fulcrologic.guardrails.core :as grc]
     [com.fulcrologic.guardrails.malli.core :refer [=> >defn]]
     [com.fulcrologic.guardrails.malli.fulcro-spec-helpers :refer [provided! when-mocking!]]

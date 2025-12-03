@@ -352,6 +352,47 @@ guardrails. When not defined `>defn` will emit exactly what `defn` would.
 You may also enable it in cljs in your shadow-cljs config
 (see Configuration...adding even an empty config map will enable it).
 
+=== Modes
+
+Guardrails supports different operating modes that control what code is generated:
+
+[cols="1,1,1,3"]
+|===
+|Mode |Runtime Checks |Metadata |Description
+
+|`:runtime`
+|Yes
+|No
+|Default mode. Full runtime validation of function inputs and outputs.
+
+|`:all`
+|Yes
+|Yes
+|Runtime checks plus metadata collection for IDE/tool integration.
+
+|`:pro`
+|No
+|Yes
+|Pro mode: No runtime overhead, only collects metadata for IDE analysis and tooling.
+|===
+
+Set the mode via JVM property:
+
+[source, bash]
+----
+-Dguardrails.mode=:pro
+-Dguardrails.mode=:all
+----
+
+Or in `guardrails.edn`:
+
+[source, clojure]
+----
+{:mode :pro}
+----
+
+NOTE: The mode property accepts both keyword syntax (`:pro`) and symbol syntax (`pro`).
+
 === The Configuration File
 
 The default config goes in the root of the project as `guardrails.edn`:

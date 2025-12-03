@@ -1,6 +1,6 @@
 (ns com.fulcrologic.guardrails.malli.core-spec
   (:require
-    [com.fulcrologic.guardrails.malli.core :refer [=> >defn >def]]
+    [com.fulcrologic.guardrails.malli.core :refer [=> >def >defn]]
     [fulcro-spec.core :refer [=throws=> assertions specification]]
     [malli.core :as m]))
 

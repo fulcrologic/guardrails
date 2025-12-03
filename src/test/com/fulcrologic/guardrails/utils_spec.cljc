@@ -1,7 +1,7 @@
 (ns com.fulcrologic.guardrails.utils-spec
   (:require
-    [fulcro-spec.core :refer [specification component => assertions]]
-    [com.fulcrologic.guardrails.utils :as u]))
+    [com.fulcrologic.guardrails.utils :as u]
+    [fulcro-spec.core :refer [=> assertions component specification]]))
 
 (specification "Call tracing"
   (let [call-stack (fn [] (mapv :f (u/current-backtrace)))]
