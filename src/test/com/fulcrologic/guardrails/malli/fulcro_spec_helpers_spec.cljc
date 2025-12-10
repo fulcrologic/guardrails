@@ -68,10 +68,10 @@
   [int? => map?]
   {:id user-id})
 
-(grc/>defn perform-action
+(>defn perform-action
   "Function under test that catches exceptions from mocks"
   [user-id]
-  [int? => [:maybe map?]]
+  [:int => [:maybe :map]]
   (try
     (when (validate-permissions user-id :read)
       (load-user-profile user-id))
@@ -191,7 +191,6 @@
       (f "a") => "one"
       "Can call two-arg version"
       (f "a" "b") => "two")))
-
 
 ;; Test for nil values
 (>defn maybe-string
