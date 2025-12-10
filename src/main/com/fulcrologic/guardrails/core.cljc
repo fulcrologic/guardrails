@@ -151,7 +151,25 @@
                                   {:val specable-args})))
               (utils/report-problem description)))))
       (catch #?(:cljs :default :clj Throwable) e
-        (utils/report-exception e (str "BUG: Internal error validating ") fqnm))
+        (let [error-msg (ex-message e)
+              is-schema-error? (and error-msg
+                                 (or (re-find #"Unable to resolve spec" error-msg)
+                                   (re-find #"no method" error-msg)
+                                   (re-find #"Unknown schema" error-msg)
+                                   (re-find #"Invalid schema" error-msg)))
+              user-friendly-msg (if is-schema-error?
+                                  (str "Schema/spec error in " fqnm ": " error-msg
+                                    "\nThis typically means a referenced schema doesn't exist or wasn't loaded.")
+                                  (str "BUG: Internal error validating " fqnm ": " error-msg))]
+          (if throw?
+            (reset! valid-exception
+              (ex-info user-friendly-msg
+                #:com.fulcrologic.guardrails
+                 {:_/type        :com.fulcrologic.guardrails/schema-error
+                  :fn-name       fn-name
+                  :failure-point (if args? :args :ret)
+                  :original-error e}))
+            (utils/report-problem user-friendly-msg))))
       (finally
         (let [duration (- (now-ms) start)]
           (when (> duration 100)
