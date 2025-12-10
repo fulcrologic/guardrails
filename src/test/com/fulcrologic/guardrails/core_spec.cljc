@@ -2,7 +2,7 @@
   (:require
     [clojure.spec.alpha :as s]
     [com.fulcrologic.guardrails.config :as config]
-    [com.fulcrologic.guardrails.core :as gr :refer [=> >defn]]
+    [com.fulcrologic.guardrails.core :as gr :refer [=> >defn |]]
     [fulcro-spec.core :refer [=throws=> assertions provided specification]]))
 
 #?(:clj
@@ -15,6 +15,7 @@
      (assertions
        "loads the config from the disk file"
        (config/get-env-config false) => {:defn-macro             nil
+                                         :mode                   :all
                                          :throw?                 true
                                          :guardrails/compact?    true,
                                          :guardrails/trace?      true,
@@ -103,3 +104,14 @@
     (seq-func 100 1 2) => 103
     "vararg of sequences"
     (vararg-seq [:a 1] [:b 2]) => [[:a 1] [:b 2]]))
+
+(>defn f [foo bar]
+  [int? int? => int? | #(> foo 11 bar)]
+  (+ foo bar))
+
+(specification "Where clause"
+  (assertions
+    "Passing case is fine"
+    (f 14 10) => 24
+    "Invalid case throws an error"
+    (f 10 14) =throws=> #"should"))

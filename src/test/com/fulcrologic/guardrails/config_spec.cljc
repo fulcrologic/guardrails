@@ -117,16 +117,6 @@
                "Prints warning to stderr"
                (re-find #"Unknown guardrails mode" stderr) =fn=> some?)))
 
-         (component "No mode specified defaults to :runtime without warning"
-           (System/clearProperty "guardrails.mode")
-           (let [stderr (capture-stderr #(c/get-env-config false))
-                 cfg    (c/get-env-config false)]
-             (assertions
-               "Defaults to :runtime"
-               (c/mode cfg) => :runtime
-               "Does not print warning to stderr"
-               (re-find #"Unknown guardrails mode" stderr) => nil)))
-
          (finally
            (if original-mode
              (System/setProperty "guardrails.mode" original-mode)

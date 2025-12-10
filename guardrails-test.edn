@@ -1,4 +1,5 @@
 {:defn-macro             nil
+ :mode                   :all
  :throw?                 true
  :guardrails/compact?    true
  :guardrails/trace?      true

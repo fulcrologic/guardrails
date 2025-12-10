@@ -138,14 +138,14 @@
     (throw (parser-error state "Syntax error: expected a return type!"))))
 
 (defn such-that
-  [{:as state, ::keys [result], [lookahead & remainder :as args] ::args}]
+  [{:as state, ::keys [result], [lookahead & remainder :as args] ::args} arglist]
   (if (such-that? lookahead)
     (-> state
       (next-args)
       (loop-over-args (some-fn not gen?) :result-fn
         (fn [result arg]
-          ;; TODO: return predicate cannot resolve from arglist
-          (update result ::gr.reg/return-predicates append arg))))
+          (update result ::gr.reg/return-predicates
+            append (replace-arglist arg arglist)))))
     state))
 
 (defn generator
@@ -162,7 +162,7 @@
     (argument-specs)
     (argument-predicates arglist)
     (return-type)
-    (such-that)
+    (such-that arglist)
     (generator)))
 
 (defn >fn? [x]

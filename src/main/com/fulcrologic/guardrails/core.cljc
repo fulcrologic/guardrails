@@ -10,17 +10,17 @@
 (ns com.fulcrologic.guardrails.core
   #?(:cljs (:require-macros com.fulcrologic.guardrails.core))
   (:require
-   #?@(:clj  [[clojure.set :as set]
-              [clojure.walk :as walk]
-              [com.fulcrologic.guardrails.impl.pro :as gr.pro]
-              [com.fulcrologic.guardrails.utils :as utils :refer [cljs-env? clj->cljs strip-colors]]]
-       :cljs [[com.fulcrologic.guardrails.impl.externs]
-              [com.fulcrologic.guardrails.utils :as utils :refer [strip-colors]]
-              [goog.object :as gobj]])
-   [clojure.spec.alpha :as s]
-   [clojure.string :as str]
-   [com.fulcrologic.guardrails.config :as gr.cfg]
-   [expound.alpha :as exp]))
+    #?@(:clj  [[clojure.set :as set]
+               [clojure.walk :as walk]
+               [com.fulcrologic.guardrails.impl.pro :as gr.pro]
+               [com.fulcrologic.guardrails.utils :as utils :refer [cljs-env? clj->cljs strip-colors]]]
+        :cljs [[com.fulcrologic.guardrails.impl.externs]
+               [com.fulcrologic.guardrails.utils :as utils :refer [strip-colors]]
+               [goog.object :as gobj]])
+    [clojure.spec.alpha :as s]
+    [clojure.string :as str]
+    [com.fulcrologic.guardrails.config :as gr.cfg]
+    [expound.alpha :as exp]))
 
 ;; It doesn't actually matter what these are bound to, they are stripped by
 ;; the macros they're used in and never end up in the final code. This is just
@@ -63,10 +63,10 @@
   (let [{:keys [level ?err msg_ ?ns-str ?file hostname_
                 timestamp_ ?line]} data]
     (str
-     (str/upper-case (name level)) " "
-     (force msg_)
-     (when-let [err ?err]
-       (str "\n" (utils/stacktrace err))))))
+      (str/upper-case (name level)) " "
+      (force msg_)
+      (when-let [err ?err]
+        (str "\n" (utils/stacktrace err))))))
 
 #?(:clj
    (defn now-ms ^long []
@@ -82,15 +82,15 @@
     (let [lines (into [(if args?
                          (str fqnm "'s arguments:")
                          (str fqnm "'s return:"))]
-                      (->>
-                       (str/split-lines
-                        (with-out-str
-                          ((exp/custom-printer expound-options) explain-data)))
-                       (remove (fn [l]
-                                 (or
-                                  (str/includes? l "------")
-                                  (re-matches #"^Detected \d.*$" l)
-                                  (re-matches #"^\s*$" l))))))]
+                  (->>
+                    (str/split-lines
+                      (with-out-str
+                        ((exp/custom-printer expound-options) explain-data)))
+                    (remove (fn [l]
+                              (or
+                                (str/includes? l "------")
+                                (re-matches #"^Detected \d.*$" l)
+                                (re-matches #"^\s*$" l))))))]
       (str "  " (str/join "\n  " lines)))
     (with-out-str
       ((exp/custom-printer expound-options) explain-data))))
@@ -118,45 +118,45 @@
         (binding [*out* (if use-stderr? #?(:clj *err* :cljs *out*) *out*)]
           (let [explain-data  (explain-fn spec specable-args)
                 explain-human (humanize-fn explain-data (assoc humanize-opts
-                                                               :guardrails/compact? compact?
-                                                               :guardrails/fqnm fqnm
-                                                               :guardrails/args? args?))
+                                                          :guardrails/compact? compact?
+                                                          :guardrails/fqnm fqnm
+                                                          :guardrails/args? args?))
                 e             (ex-info "" {})
                 description   (utils/problem-description
-                               (str
-                                "\nGuardrails:\n"
-                                explain-human)
-                               e options)
+                                (str
+                                  "\nGuardrails:\n"
+                                  explain-human)
+                                e options)
                 context       (get-global-context)]
             (utils/record-failure fqnm e)
             (when (and tap tap>?)
               (tap #:com.fulcrologic.guardrails
-                    {:fn-name       fqnm
-                     :failure-point (if args? :args :ret)
-                     :spec          spec
-                     :explain-data  explain-data
-                     :explain-human (strip-colors explain-human)}))
+                      {:fn-name       fqnm
+                       :failure-point (if args? :args :ret)
+                       :spec          spec
+                       :explain-data  explain-data
+                       :explain-human (strip-colors explain-human)}))
             (if throw?
               (reset! valid-exception
-                      (ex-info (cond->> description context
-                                        (str "\nContext: " context))
-                               (with-meta
-                                 #:com.fulcrologic.guardrails
-                                  {:_/type        :com.fulcrologic.guardrails/validation-error
-                                   :fn-name       fn-name
-                                   :failure-point (if args? :args :ret)
-                                   :spec          spec
-                                   :context       context}
-                                 #:com.fulcrologic.guardrails
-                                  {:val specable-args})))
+                (ex-info (cond->> description context
+                           (str "\nContext: " context))
+                  (with-meta
+                    #:com.fulcrologic.guardrails
+                            {:_/type        :com.fulcrologic.guardrails/validation-error
+                             :fn-name       fn-name
+                             :failure-point (if args? :args :ret)
+                             :spec          spec
+                             :context       context}
+                    #:com.fulcrologic.guardrails
+                            {:val specable-args})))
               (utils/report-problem description)))))
       (catch #?(:cljs :default :clj Throwable) e
-        (let [error-msg (ex-message e)
-              is-schema-error? (and error-msg
-                                 (or (re-find #"Unable to resolve spec" error-msg)
-                                   (re-find #"no method" error-msg)
-                                   (re-find #"Unknown schema" error-msg)
-                                   (re-find #"Invalid schema" error-msg)))
+        (let [error-msg         (ex-message e)
+              is-schema-error?  (and error-msg
+                                  (or (re-find #"Unable to resolve spec" error-msg)
+                                    (re-find #"no method" error-msg)
+                                    (re-find #"Unknown schema" error-msg)
+                                    (re-find #"Invalid schema" error-msg)))
               user-friendly-msg (if is-schema-error?
                                   (str "Schema/spec error in " fqnm ": " error-msg
                                     "\nThis typically means a referenced schema doesn't exist or wasn't loaded.")
@@ -165,16 +165,16 @@
             (reset! valid-exception
               (ex-info user-friendly-msg
                 #:com.fulcrologic.guardrails
-                 {:_/type        :com.fulcrologic.guardrails/schema-error
-                  :fn-name       fn-name
-                  :failure-point (if args? :args :ret)
-                  :original-error e}))
+                        {:_/type         :com.fulcrologic.guardrails/schema-error
+                         :fn-name        fn-name
+                         :failure-point  (if args? :args :ret)
+                         :original-error e}))
             (utils/report-problem user-friendly-msg))))
       (finally
         (let [duration (- (now-ms) start)]
           (when (> duration 100)
             (utils/report-problem (str "WARNING: " fn-name " " (if args? "argument specs" "return spec") " took " duration "ms to run.")
-                                  nil options)))))
+              nil options)))))
     (when @valid-exception
       (throw @valid-exception)))
   nil)
@@ -192,7 +192,7 @@
                 `(~op ~@head-forms ~@(strip-gspec body-forms)))
               (let [[head-forms body-forms tail-attr-map] (partition-by (complement seq?) forms)]
                 `(~op ~@head-forms ~@(map strip-gspec body-forms) ~@tail-attr-map)))
-            (remove nil?)))))
+         (remove nil?)))))
 
 #?(:clj
    (defn- count-args
@@ -214,9 +214,9 @@
 
      (s/def ::guardrails-config
        (s/keys
-        :opt-un [::defn-macro
-                 ::expound
-                 ::throw?]))
+         :opt-un [::defn-macro
+                  ::expound
+                  ::throw?]))
 
      ;; These are lifted straight from clojure.core.specs.alpha, because it
      ;; didn't seem possible to access them directly in the original namespace.
@@ -225,9 +225,9 @@
      ;; sequential destructuring
      (s/def ::seq-binding-form
        (s/and vector?
-              (s/cat :elems (s/* ::binding-form)
-                     :rest (s/? (s/cat :amp #{'&} :form ::binding-form))
-                     :as (s/? (s/cat :as #{:as} :sym ::local-name)))))
+         (s/cat :elems (s/* ::binding-form)
+           :rest (s/? (s/cat :amp #{'&} :form ::binding-form))
+           :as (s/? (s/cat :as #{:as} :sym ::local-name)))))
 
      ;; map destructuring
      (s/def ::keys (s/coll-of ident? :kind vector?))
@@ -243,62 +243,62 @@
 
      (s/def ::ns-keys
        (s/tuple
-        (s/and qualified-keyword? #(-> % name #{"keys" "syms"}))
-        (s/coll-of simple-symbol? :kind vector?)))
+         (s/and qualified-keyword? #(-> % name #{"keys" "syms"}))
+         (s/coll-of simple-symbol? :kind vector?)))
 
      (s/def ::map-bindings
        (s/every (s/or :mb ::map-binding
-                      :nsk ::ns-keys
-                      :msb (s/tuple #{:as :or :keys :syms :strs} any?))
-                :into {}))
+                  :nsk ::ns-keys
+                  :msb (s/tuple #{:as :or :keys :syms :strs} any?))
+         :into {}))
 
      (s/def ::map-binding-form (s/merge ::map-bindings ::map-special-binding))
 
      (s/def ::binding-form
        (s/or :sym ::local-name
-             :seq ::seq-binding-form
-             :map ::map-binding-form))
+         :seq ::seq-binding-form
+         :map ::map-binding-form))
 
      ;;; Function and >defn specs
 
      (s/def ::arg-list
        (s/and vector?
-              (s/cat :args (s/* ::binding-form)
-                     :varargs (s/? (s/cat :amp #{'&} :form ::binding-form)))))
+         (s/cat :args (s/* ::binding-form)
+           :varargs (s/? (s/cat :amp #{'&} :form ::binding-form)))))
 
      (s/def ::pred-arg-list
        (s/and vector?
-              (s/cat :args (s/* (s/or :sym ::local-name)))))
+         (s/cat :args (s/* (s/or :sym ::local-name)))))
 
      (s/def ::anon-args+body
        (s/cat :args ::arg-list
-              :body (s/* any?)))
+         :body (s/* any?)))
 
      (s/def ::anon-fn
        (s/and seq?
-              (s/cat :op #{'fn* 'fn}
-                     :name (s/? simple-symbol?)
-                     :bs (s/alt :arity-1 ::anon-args+body
-                                :arity-n (s/+ (s/spec ::anon-args+body))))))
+         (s/cat :op #{'fn* 'fn}
+           :name (s/? simple-symbol?)
+           :bs (s/alt :arity-1 ::anon-args+body
+                 :arity-n (s/+ (s/spec ::anon-args+body))))))
 
      (s/def ::pred-fn
        (s/and seq?
-              (s/cat :op #{'fn* 'fn}
-                     :name (s/? simple-symbol?)
-                     :args ::pred-arg-list
-                     :body any?)))
+         (s/cat :op #{'fn* 'fn}
+           :name (s/? simple-symbol?)
+           :args ::pred-arg-list
+           :body any?)))
 
      (s/def ::spec-elem
        (s/or
-        :set set?
-        :pred-sym (s/and symbol?
-                         (complement #{'| '=> '<-})
+         :set set?
+         :pred-sym (s/and symbol?
+                     (complement #{'| '=> '<-})
                      ;; REVIEW: should the `?` be a requirement?
-                         #(str/ends-with? (str %) "?"))
-        :gspec (s/or :nilable-gspec ::nilable-gspec :gspec ::gspec)
-        :spec-key qualified-keyword?
-        :fun ::pred-fn
-        :list seq?))
+                     #(str/ends-with? (str %) "?"))
+         :gspec (s/or :nilable-gspec ::nilable-gspec :gspec ::gspec)
+         :spec-key qualified-keyword?
+         :fun ::pred-fn
+         :list seq?))
 
      (s/def ::such-that-op #{:st '|})
      (s/def ::ret-op #{:ret '=>})
@@ -306,57 +306,57 @@
 
      (s/def ::gspec
        (s/and vector?
-              (s/cat :args (s/? (s/cat :args (s/+ ::spec-elem)
-                                       :args-such-that (s/? (s/cat :op ::such-that-op
-                                                                   :preds (s/+ ::pred-fn)))))
-                     :ret-op ::ret-op
-                     :ret ::spec-elem
-                     :fn-such-that (s/? (s/cat :op ::such-that-op
-                                               :preds (s/+ ::pred-fn)))
-                     :gen (s/? (s/cat :op ::gen-op
-                                      :gen-fn (s/? (some-fn seq? symbol?)))))))
+         (s/cat :args (s/? (s/cat :args (s/+ ::spec-elem)
+                             :args-such-that (s/? (s/cat :op ::such-that-op
+                                                    :preds (s/+ ::pred-fn)))))
+           :ret-op ::ret-op
+           :ret ::spec-elem
+           :fn-such-that (s/? (s/cat :op ::such-that-op
+                                :preds (s/+ ::pred-fn)))
+           :gen (s/? (s/cat :op ::gen-op
+                       :gen-fn (s/? (some-fn seq? symbol?)))))))
 
      (s/def ::nilable-gspec
        (s/and vector?
-              (s/cat :maybe #{'? 's/nilable}
-                     :gspec ::gspec)))
+         (s/cat :maybe #{'? 's/nilable}
+           :gspec ::gspec)))
 
      (s/def ::prepost (s/map-of #{:pre :post}
-                                (s/coll-of seq?
-                                           :kind vector?
-                                           :distinct true)))
+                        (s/coll-of seq?
+                          :kind vector?
+                          :distinct true)))
 
      (s/def ::args+body
        (s/cat :args ::arg-list
-              :body (s/alt :prepost+body (s/cat :prepost ::prepost
-                                                :body (s/+ any?))
-                           :body (s/* any?))))
+         :body (s/alt :prepost+body (s/cat :prepost ::prepost
+                                      :body (s/+ any?))
+                 :body (s/* any?))))
 
      (s/def ::args+gspec+body
        (s/&
-        (s/cat :args ::arg-list
-               :gspec (s/nilable ::gspec)
-               :body (s/alt :prepost+body (s/cat :prepost ::prepost
-                                                 :body (s/+ any?))
-                            :body (s/* any?)))
-        (fn arg-specs-match-param-count? [{:keys [args gspec]}]
-          (if-not gspec
-            true
-            (let [argcount  (->> args count-args (apply +))
-                  spec-args (:args gspec)]
-              (if spec-args
-                (-> spec-args :args count (= argcount))
-                (= argcount 0)))))))
+         (s/cat :args ::arg-list
+           :gspec (s/nilable ::gspec)
+           :body (s/alt :prepost+body (s/cat :prepost ::prepost
+                                        :body (s/+ any?))
+                   :body (s/* any?)))
+         (fn arg-specs-match-param-count? [{:keys [args gspec]}]
+           (if-not gspec
+             true
+             (let [argcount  (->> args count-args (apply +))
+                   spec-args (:args gspec)]
+               (if spec-args
+                 (-> spec-args :args count (= argcount))
+                 (= argcount 0)))))))
 
      (s/def ::defn
        (s/and seq?
-              (s/cat :op #{'defn 'defn-}
-                     :name simple-symbol?
-                     :docstring (s/? string?)
-                     :meta (s/? map?)
-                     :bs (s/alt :arity-1 ::args+body
-                                :arity-n (s/cat :bodies (s/+ (s/spec ::args+body))
-                                                :attr (s/? map?))))))))
+         (s/cat :op #{'defn 'defn-}
+           :name simple-symbol?
+           :docstring (s/? string?)
+           :meta (s/? map?)
+           :bs (s/alt :arity-1 ::args+body
+                 :arity-n (s/cat :bodies (s/+ (s/spec ::args+body))
+                            :attr (s/? map?))))))))
 
 ;;;; Main code generating functions
 
@@ -382,9 +382,9 @@
        ;; with clojure.spec where an anonymous or nested gspec for a function
        ;; argument has neither specific enough types nor a generator.
        (if (and anon-fspec?
-                argspec-def
-                (not gen)
-                (some #{'any? :any} (-> argspec-def :args vals)))
+             argspec-def
+             (not gen)
+             (some #{'any? :any} (-> argspec-def :args vals)))
          (if nilable?
            (if malli? `[:maybe ifn?] `(s/nilable ifn?))
            `ifn?)
@@ -393,16 +393,16 @@
                  (if (= spec-type :gspec)
                    (if (= (key spec) :nilable-gspec)
                      (gspec->fspec*
-                      nil
-                      (-> spec val :gspec)
-                      {::anon-fspec? true
-                       ::nilable?    true
-                       ::malli?      malli?})
+                       nil
+                       (-> spec val :gspec)
+                       {::anon-fspec? true
+                        ::nilable?    true
+                        ::malli?      malli?})
                      (gspec->fspec*
-                      nil
-                      (val spec)
-                      {::anon-fspec? true
-                       ::malli?      malli?}))
+                       nil
+                       (val spec)
+                       {::anon-fspec? true
+                        ::malli?      malli?}))
                    spec))
 
                ;; Destructuring vector for the function arguments with added
@@ -414,7 +414,7 @@
                (if (empty? clean-arg-vec)
                  (if malli? [] {})
                  (if (every? (fn [[type _arg]] (= type :sym))
-                             (remove nil? (conj conformed-reg-args conformed-var-arg)))
+                       (remove nil? (conj conformed-reg-args conformed-var-arg)))
                    (if malli?
                      arg-syms
                      `{:keys ~arg-syms})
@@ -422,9 +422,9 @@
                      clean-arg-vec
                      (->> (map (fn [destruct-binding arg-sym]
                                  [destruct-binding (keyword arg-sym)])
-                               clean-arg-vec
-                               arg-syms)
-                          (into {})))))
+                            clean-arg-vec
+                            arg-syms)
+                       (into {})))))
 
                ;; Process an argument predicate to make sure all direct
                ;; references to the argument bindings are valid
@@ -454,11 +454,11 @@
                                             (map #(do [(keyword %1) %2]) arg-syms __))
                                           (if anon-fspec?
                                             (interleave
-                                             (map-indexed
-                                              (fn [^long index _]
-                                                (keyword (format "arg%s" (str (inc index)))))
-                                              (repeat nil))
-                                             __)
+                                              (map-indexed
+                                                (fn [^long index _]
+                                                  (keyword (format "arg%s" (str (inc index)))))
+                                                (repeat nil))
+                                              __)
                                             (interleave (map keyword arg-syms) __)))
                                         (if malli?
                                           (if anon-fspec?
@@ -510,15 +510,15 @@
                        (split-with (complement vector?) fn-pred)
 
                        pred-params (-> orig-pred-params
-                                       set/map-invert
-                                       (assoc :args clean-arg-vec)
-                                       set/map-invert)
+                                     set/map-invert
+                                     (assoc :args clean-arg-vec)
+                                     set/map-invert)
                        ret-pred    `(~@pred-head [~pred-params]
-                                                 ~@pred-bodies)]
+                                      ~@pred-bodies)]
                    `(~@pred-head [ret#]
-                                 (let [pred-args# {:args ~arg-syms :ret ret#}
-                                       ret-pred#  ~ret-pred]
-                                   (ret-pred# pred-args#)))))
+                      (let [pred-args# {:args ~arg-syms :ret ret#}
+                            ret-pred#  ~ret-pred]
+                        (ret-pred# pred-args#)))))
 
                closurified-ret-preds
                (when processed-ret-preds
@@ -529,8 +529,8 @@
                (if malli?
                  (if (or external-consumption? anon-fspec?)
                    (vec (concat
-                         (when-not multi-arity-args? [:function])
-                         [[:=> processed-arg-spec (extract-spec retspec)]]))
+                          (when-not multi-arity-args? [:function])
+                          [[:=> processed-arg-spec (extract-spec retspec)]]))
                    (let [ret (extract-spec retspec)]
                      {:args processed-arg-spec
                       :ret  (if closurified-ret-preds
@@ -538,14 +538,14 @@
                               ret)}))
                  (if (or external-consumption? anon-fspec?)
                    (concat
-                    (when anon-fspec? [`s/fspec])
-                    [:args processed-arg-spec]
-                    [:ret (extract-spec retspec)]
-                    (when processed-ret-preds
-                      [:fn (if (next processed-ret-preds)
-                             (cons `s/and processed-ret-preds)
-                             (first processed-ret-preds))])
-                    (when gen-fn [:gen gen-fn]))
+                     (when anon-fspec? [`s/fspec])
+                     [:args processed-arg-spec]
+                     [:ret (extract-spec retspec)]
+                     (when processed-ret-preds
+                       [:fn (if (next processed-ret-preds)
+                              (cons `s/and processed-ret-preds)
+                              (first processed-ret-preds))])
+                     (when gen-fn [:gen gen-fn]))
                    (let [ret (extract-spec retspec)]
                      {:args processed-arg-spec
                       :ret  (if closurified-ret-preds
@@ -585,9 +585,9 @@
        (let [conformed-reg-args (vec (->> args :args (map-indexed process-arg)))
              arg->sym           #(let [f (into {} [%])]
                                    (or
-                                    (:sym f)
-                                    (some-> f :seq :as :sym)
-                                    (some-> f :map :as)))
+                                     (:sym f)
+                                     (some-> f :seq :as :sym)
+                                     (some-> f :map :as)))
              reg-arg-names      (mapv arg->sym conformed-reg-args)
              conformed-var-arg  (some->> args :varargs :form (process-arg "v"))
              arg-syms           (if conformed-var-arg
@@ -595,14 +595,14 @@
                                   reg-arg-names)
              unform-arg         #(->> % (s/unform ::binding-form) unscrew-vec-unform)
              clean-arg-vec      (vec (concat
-                                      (map unform-arg conformed-reg-args)
-                                      (when conformed-var-arg [(unform-arg conformed-var-arg)])))
+                                       (map unform-arg conformed-reg-args)
+                                       (when conformed-var-arg [(unform-arg conformed-var-arg)])))
              raw-arg-vec        (if-not conformed-var-arg
                                   clean-arg-vec
                                   (vec (concat
-                                        (pop clean-arg-vec)
-                                        ['&]
-                                        [(peek clean-arg-vec)])))]
+                                         (pop clean-arg-vec)
+                                         ['&]
+                                         [(peek clean-arg-vec)])))]
          {::conformed-reg-args conformed-reg-args
           ::conformed-var-arg  conformed-var-arg
           ::arg-syms           arg-syms
@@ -618,26 +618,26 @@
    (let [get-fspecs    (fn [malli? fn-tail]
                          (let [[param-count ^long variadic] (-> fn-tail :args count-args)
                                gspec (or (:gspec fn-tail)
-                                         (s/conform ::gspec
-                                                    (vec (concat (repeat param-count 'any?)
-                                                                 (when (> variadic 0)
-                                                                   (if malli?
-                                                                     `[[:* any?]]
-                                                                     `[(s/* any?)]))
-                                                                 '[=> any?]))))]
+                                       (s/conform ::gspec
+                                         (vec (concat (repeat param-count 'any?)
+                                                (when (> variadic 0)
+                                                  (if malli?
+                                                    `[[:* any?]]
+                                                    `[(s/* any?)]))
+                                                '[=> any?]))))]
                            [(->> (if (> variadic 0) "n" param-count)
-                                 (str "arity-")
-                                 keyword)
+                              (str "arity-")
+                              keyword)
                             (gspec->fspec*
-                             (process-args fn-tail)
-                             gspec
-                             {::multi-arity-args?     true
-                              ::malli?                malli?
-                              ::external-consumption? true})]))
+                              (process-args fn-tail)
+                              gspec
+                              {::multi-arity-args?     true
+                               ::malli?                malli?
+                               ::external-consumption? true})]))
          get-spec-part (fn [part spec]
                          (->> spec
-                              (drop-while (complement #{part}))
-                              second))]
+                           (drop-while (complement #{part}))
+                           second))]
      (defn- generate-external-fspec
        "Generates function specs or schemas for external consumption by native
        clojure.spec or Malli tools. Data specs for internal Guardrails checking
@@ -658,10 +658,10 @@
          :arity-1
          (when-let [gspec (-> conformed-fn-tail-or-tails val :gspec)]
            (gspec->fspec*
-            (process-args (val conformed-fn-tail-or-tails))
-            gspec
-            {::malli?                malli?
-             ::external-consumption? true}))
+             (process-args (val conformed-fn-tail-or-tails))
+             gspec
+             {::malli?                malli?
+              ::external-consumption? true}))
          :arity-n
          (when (some :gspec (val conformed-fn-tail-or-tails))
            (if malli?
@@ -670,24 +670,24 @@
              (let [fspecs           (map (partial get-fspecs false) (val conformed-fn-tail-or-tails))
                    arg-specs        (mapcat (fn [[arity spec]]
                                               [arity (or (get-spec-part :args spec) `empty?)])
-                                            fspecs)
+                                      fspecs)
                    fn-param         (gensym "p1__")
                    multi-ret-specs  (when (->> fspecs
-                                               (map #(get-spec-part :ret (second %)))
-                                               distinct
-                                               count
-                                               (not= 1))
+                                            (map #(get-spec-part :ret (second %)))
+                                            distinct
+                                            count
+                                            (not= 1))
                                       (mapcat (fn [[arity spec]]
                                                 [arity `(s/valid? ~(get-spec-part :ret spec)
-                                                                  (:ret ~fn-param))])
-                                              fspecs))
+                                                          (:ret ~fn-param))])
+                                        fspecs))
                    get-fn-clause    (partial get-spec-part :fn)
                    fn-specs         (when (->> fspecs (map second) (some get-fn-clause))
                                       (mapcat (fn [[arity spec]]
                                                 [arity (if-let [fn-spec (get-fn-clause spec)]
                                                          `(s/valid? ~fn-spec ~fn-param)
                                                          true)])
-                                              fspecs))
+                                        fspecs))
                    ;; NOTE: destructure args and ret in the arg vec
                    multi-ret-clause (when multi-ret-specs
                                       `(fn ~'valid-multi-arity-ret? [~fn-param]
@@ -701,14 +701,14 @@
                ;; for multi-arity specs in the wild. The spec error reporting
                ;; is much better and it's immediately clear what didn't match.
                (concat [:args `(s/or ~@arg-specs)]
-                       (when-not multi-ret-clause
-                         [:ret (get-spec-part :ret (-> fspecs first second))])
-                       (when (or multi-ret-clause multi-fn-clause)
-                         [:fn (if multi-fn-clause
-                                (if multi-ret-clause
-                                  `(s/and ~multi-ret-clause ~multi-fn-clause)
-                                  multi-fn-clause)
-                                multi-ret-clause)])))))))))
+                 (when-not multi-ret-clause
+                   [:ret (get-spec-part :ret (-> fspecs first second))])
+                 (when (or multi-ret-clause multi-fn-clause)
+                   [:fn (if multi-fn-clause
+                          (if multi-ret-clause
+                            `(s/and ~multi-ret-clause ~multi-fn-clause)
+                            multi-fn-clause)
+                          multi-ret-clause)])))))))))
 
 #?(:clj
    (defn generate-fdef
@@ -743,8 +743,8 @@
      (let [perf (oget js-?window "performance")
            pf   (when perf
                   (or
-                   (oget perf "now") (oget perf "mozNow") (oget perf "webkitNow")
-                   (oget perf "msNow") (oget perf "oNow")))]
+                    (oget perf "now") (oget perf "mozNow") (oget perf "webkitNow")
+                    (oget perf "msNow") (oget perf "oNow")))]
        (if (and perf pf)
          (fn [] (Math/floor (* 1e6 (.call pf perf))))
          (fn [] (* 1e6 (js/Date.now)))))))
@@ -822,7 +822,7 @@
            ret             (gensym "ret")
            add-throttling? (number? max-checks-per-second)
            ret-check       `(when (and ~retspec
-                                       (not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))))
+                                    (not (gr.cfg/-excluded? ~(first exclusion-coord) ~(second exclusion-coord))))
                               (run-check ~(assoc opts :args? false) ~retspec ~ret))
            real-function   `(fn ~'guardrails-wrapper ~raw-arg-vec ~@body-forms)
            f               (gensym "f")
@@ -835,20 +835,20 @@
            throttle-form   (throttle-form add-throttling?)
            bnd             (if cljs? `with-redefs 'clojure.core/binding)]
        `(~@(remove nil? [raw-arg-vec prepost])
-         (~bnd [utils/*backtrace* (or utils/*backtrace* (utils/new-backtrace 10))]
-               (utils/backtrace-enter ~(str nspc) ~(str fn-name) ~@arg-syms)
-               (try
-                 (let [{~argspec :args ~retspec :ret} ~fspec
-                       throttle# ~throttle-form]
-                   (when-not throttle#
-                     ~args-check)
-                   (let [~f ~real-function
-                         ~ret ~call]
-                     (when-not throttle#
-                       ~ret-check)
-                     ~ret))
-                 (finally
-                   (utils/backtrace-exit))))))))
+          (~bnd [utils/*backtrace* (or utils/*backtrace* (utils/new-backtrace 10))]
+            (utils/backtrace-enter ~(str nspc) ~(str fn-name) ~@arg-syms)
+            (try
+              (let [{~argspec :args ~retspec :ret} ~fspec
+                    throttle# ~throttle-form]
+                (when-not throttle#
+                  ~args-check)
+                (let [~f ~real-function
+                      ~ret ~call]
+                  (when-not throttle#
+                    ~ret-check)
+                  ~ret))
+              (finally
+                (utils/backtrace-exit))))))))
 
 #?(:clj
    (defn- generate-defn
@@ -860,8 +860,8 @@
            docstring          (:docstring conformed-gdefn)
            {:guardrails/keys [malli?]} env
            raw-meta-map       (merge
-                               (:meta conformed-gdefn)
-                               {::guardrails true})
+                                (:meta conformed-gdefn)
+                                {::guardrails true})
            ;;; Assemble the config
            {max-checks-per-second :guardrails/mcps
             :keys                 [defn-macro] :as config}
@@ -883,8 +883,8 @@
                                   nil #_`(malli.core/=> ~fn-name [~@external-fdef-body])
                                   `(s/fdef ~fn-name ~@external-fdef-body)))
            meta-map           (merge
-                               raw-meta-map
-                               (when malli? {:malli/schema `[~@external-fdef-body]}))
+                                raw-meta-map
+                                (when malli? {:malli/schema `[~@external-fdef-body]}))
            processed-fn-tails (let [process-cfg      {:env     env
                                                       :config  config
                                                       :fn-name fn-name}
@@ -893,7 +893,7 @@
                                   :arity-1 (process-defn-tail process-cfg fn-tail-or-tails)
                                   :arity-n (map (partial process-defn-tail process-cfg) fn-tail-or-tails)))
            main-defn          `(~@(remove nil? [defn-sym fn-name docstring meta-map])
-                                ~@processed-fn-tails)
+                                 ~@processed-fn-tails)
            throttle-decls     (if add-throttling?
                                 `[~'__gr_vncalls (volatile! 0)
                                   ~'__gr_vstart-time (volatile! 0)
@@ -908,12 +908,12 @@
    ;;;; Main macros and public API
    (s/def ::>defn-args
      (s/and seq?                                            ; REVIEW
-            (s/cat :name simple-symbol?
-                   :docstring (s/? string?)
-                   :meta (s/? map?)
-                   :bs (s/alt :arity-1 ::args+gspec+body
+       (s/cat :name simple-symbol?
+         :docstring (s/? string?)
+         :meta (s/? map?)
+         :bs (s/alt :arity-1 ::args+gspec+body
                ;; TODO: add tail-attr-map support after this
-                              :arity-n (s/+ (s/and seq? ::args+gspec+body)))))))
+               :arity-n (s/+ (s/and seq? ::args+gspec+body)))))))
 
 #?(:clj
    (defn >defn* [env form body {:keys [private? guardrails/malli?] :as opts}]
@@ -982,9 +982,9 @@
 #?(:clj
    (s/def ::>fdef-args
      (s/and seq?                                            ;REVIEW
-            (s/cat :name (s/or :sym symbol? :key qualified-keyword?)
-                   :bs (s/alt :arity-1 ::args+gspec+body
-                              :arity-n (s/+ (s/and seq? ::args+gspec+body)))))))
+       (s/cat :name (s/or :sym symbol? :key qualified-keyword?)
+         :bs (s/alt :arity-1 ::args+gspec+body
+               :arity-n (s/+ (s/and seq? ::args+gspec+body)))))))
 
 #?(:clj
    (defmacro >fdef

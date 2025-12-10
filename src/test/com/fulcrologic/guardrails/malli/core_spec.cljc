@@ -1,6 +1,6 @@
 (ns com.fulcrologic.guardrails.malli.core-spec
   (:require
-    [com.fulcrologic.guardrails.malli.core :refer [=> >def >defn]]
+    [com.fulcrologic.guardrails.malli.core :refer [=> >def >defn |]]
     [fulcro-spec.core :refer [=throws=> assertions specification]]
     [malli.core :as m]))
 
@@ -95,5 +95,13 @@
     "Shows the GR stack"
     (top 4.3) =throws=> #"(com.fulcrologic.guardrails.malli.core-spec/nested 4.3)"))
 
-(comment
-  (top 3.2))
+(>defn f [foo bar]
+  [:int :int => :int | #(> foo 11 bar)]
+  (+ foo bar))
+
+(specification "Where clause"
+  (assertions
+    "Passing case is fine"
+    (f 14 10) => 24
+    "Invalid case throws an error"
+    (f 10 14) =throws=> #"Return"))
