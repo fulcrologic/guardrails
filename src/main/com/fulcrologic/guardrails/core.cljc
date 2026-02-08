@@ -95,7 +95,7 @@
     (with-out-str
       ((exp/custom-printer expound-options) explain-data))))
 
-(defn run-check [{:guardrails/keys [malli? compact? use-stderr? validate-fn explain-fn fqnm humanize-fn]
+(defn run-check [{:guardrails/keys [malli? compact? use-stderr? no-color? validate-fn explain-fn fqnm humanize-fn]
                   :keys            [tap>? args? vararg? humanize-opts throw? fn-name]
                   :as              options}
                  spec
@@ -122,11 +122,12 @@
                                                           :guardrails/fqnm fqnm
                                                           :guardrails/args? args?))
                 e             (ex-info "" {})
-                description   (utils/problem-description
-                                (str
-                                  "\nGuardrails:\n"
-                                  explain-human)
-                                e options)
+                description   (cond-> (utils/problem-description
+                                        (str
+                                          "\nGuardrails:\n"
+                                          explain-human)
+                                        e options)
+                                no-color? strip-colors)
                 context       (get-global-context)]
             (utils/record-failure fqnm e)
             (when (and tap tap>?)
@@ -771,7 +772,7 @@
      [cfg fn-tail]
      (let [{:keys                                                      [env fn-name]
             {max-checks-per-second :guardrails/mcps
-             :guardrails/keys      [use-stderr? compact? trace? stack-trace]
+             :guardrails/keys      [use-stderr? compact? trace? stack-trace no-color?]
              :keys                 [throw? tap>? disable-exclusions?]} :config} cfg
            {:guardrails/keys [validate-fn explain-fn humanize-fn malli?]} env
            cljs?           (cljs-env? env)
@@ -802,6 +803,7 @@
                             :guardrails/compact?    compact?
                             :guardrails/stack-trace stack-trace
                             :guardrails/use-stderr? use-stderr?
+                            :guardrails/no-color?   no-color?
                             :guardrails/malli?      malli?
                             :tap>?                  tap>?
                             :throw?                 throw?
