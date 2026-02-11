@@ -2,6 +2,7 @@
  :throw?                 true
  :guardrails/compact?    true
  :guardrails/trace?      true
+ :guardrails/no-color?   false
  :guardrails/stack-trace :none
  :expound                {:show-valid-values? true
                           :print-specs?       true}}

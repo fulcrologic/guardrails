@@ -1,7 +1,8 @@
 (ns com.fulcrologic.guardrails.malli.core-spec
   (:require
-    [com.fulcrologic.guardrails.malli.core :refer [=> >def >defn |]]
-    [fulcro-spec.core :refer [=throws=> assertions specification]]
+    [com.fulcrologic.guardrails.core :as gr.core]
+    [com.fulcrologic.guardrails.malli.core :as mc :refer [=> >def >defn |]]
+    [fulcro-spec.core :refer [=throws=> assertions specification component]]
     [malli.core :as m]))
 
 #?(:clj
@@ -105,3 +106,34 @@
     (f 14 10) => 24
     "Invalid case throws an error"
     (f 10 14) =throws=> #"Return"))
+
+(specification "no-color? option"
+  (let [opts {:fn-name                "test"
+              :guardrails/fqnm        "test/f"
+              :guardrails/compact?    true
+              :guardrails/malli?      true
+              :guardrails/validate-fn mc/validate
+              :guardrails/explain-fn  mc/explain
+              :guardrails/humanize-fn mc/humanize-schema
+              :throw?                 true
+              :args?                  true
+              :humanize-opts          {}}
+        ansi-re #"\033\["]
+    (component "with no-color? true, error has no ANSI codes"
+      (let [msg (try
+                  (gr.core/run-check (assoc opts :guardrails/no-color? true) :int "bad")
+                  nil
+                  (catch #?(:clj Exception :cljs :default) e
+                    (ex-message e)))]
+        (assertions
+          msg =fn=> some?
+          (re-find ansi-re msg) => nil)))
+    (component "without no-color?, error contains ANSI codes"
+      (let [msg (try
+                  (gr.core/run-check (assoc opts :guardrails/no-color? false) :int "bad")
+                  nil
+                  (catch #?(:clj Exception :cljs :default) e
+                    (ex-message e)))]
+        (assertions
+          msg =fn=> some?
+          (re-find ansi-re msg) =fn=> some?)))))
