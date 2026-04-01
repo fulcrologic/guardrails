@@ -9,7 +9,7 @@ atom, and you can choose to manipulate it directly; however, library authors sho
 namespaced to the library itself."}
   schema-atom (atom {}))
 
-(defonce ^{:docstring "The Malli registry using by guardrails when validating gspecs. It is a composite registry or malli default registry and mutable registry that
+(def ^{:docstring "The Malli registry using by guardrails when validating gspecs. It is a composite registry or malli default registry and mutable registry that
  works from the schema-atom in this ns."}
   registry (mr/composite-registry m/default-registry (mr/mutable-registry schema-atom)))
 
