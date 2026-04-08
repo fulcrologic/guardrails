@@ -456,9 +456,10 @@ config path of a build:
 
 == Performance
 
-Guardrails adds an overhead that is roughly equivalent to the cost of running a Clojure spec or Malli validation. On an
-Apple M1 Max, the average check on a generic code base (tested against https://github.com/fulcrologic/statecharts[our statecharts library]) takes around 11 microseconds. This actually tested out to roughly the same for Malli AND Spec, though we did find cases where
-Malli was roughly 2x faster. We did not do further deep analysis.
+Guardrails adds overhead for each instrumented function call. On the Clojure Spec side, this is roughly equivalent to
+the cost of running a spec validation. On the Malli side, Guardrails now compiles and caches Malli validators, which
+dramatically reduces per-call overhead (see <<malli-performance>> below). On an
+Apple M1 Max, the average Clojure Spec check on a generic code base (tested against https://github.com/fulcrologic/statecharts[our statecharts library]) takes around 11 microseconds.
 
 [source]
 -----
@@ -479,6 +480,76 @@ we measured the entire test suite runtime instead of the overhead of non-existen
 -----
 
 As you can see, the performance can be a significant drag on development, often leading people to strip out their checks, a thing that I've had to do in my own libraries in the past because it hurt downstream users. No more! We now have various ways of improving the situation.
+
+[#malli-performance]
+=== Malli Performance
+
+Guardrails compiles and caches Malli validators using `m/validator`, which produces specialized validation functions
+that are 15-50x faster than interpreting schemas with `m/validate` on each call. The cache is automatically invalidated
+when the schema registry changes (e.g., when you re-evaluate a `>def`), so hot-reloading works correctly.
+
+Additionally, the per-function options map used by Guardrails is constructed once at function definition time rather
+than on every call, and the `:guardrails/trace?` option controls whether the call-stack tracing infrastructure
+(which uses a `binding` form) is included in the generated code.
+
+The combined effect on Malli-instrumented functions (measured on Apple M-series, JIT-warmed):
+
+[cols="3,1,1,1"]
+|===
+|Configuration |Per-call overhead |vs Original |Notes
+
+|Original (pre-1.2.18)
+|~4,000 ns
+|--
+|Uncompiled validation + inline opts
+
+|Compiled validators + hoisted opts, trace on
+|~800 ns
+|*4.8x faster*
+|Good for interactive development
+
+|Compiled validators + hoisted opts, trace off
+|~545 ns
+|*7.2x faster*
+|Best for CI / test suites
+|===
+
+For complex schemas (e.g., maps with required and optional keys), the raw validation speedup is even more dramatic
+(50-100x), though the end-to-end function call overhead converges because the remaining cost is fixed infrastructure
+(run-check scaffolding, exclusion checks, etc.) rather than schema interpretation.
+
+In a typical application where Guardrails overhead dominates CPU time, this translates to roughly a *3-4x reduction*
+in overall test suite runtime compared to prior versions.
+
+==== Recommended Configuration for CI / Test Suites
+
+For maximum test suite speed, create a separate config file (e.g., `guardrails-ci.edn`) and point to it with
+`-Dguardrails.config=guardrails-ci.edn`:
+
+[source, clojure]
+----
+{:throw?                 true    ; fail tests on guardrails violations
+ :guardrails/compact?    true    ; concise error output
+ :guardrails/trace?      false   ; skip call-stack tracing overhead
+ :guardrails/stack-trace :none}  ; skip stack trace formatting
+----
+
+==== Recommended Configuration for Interactive Development
+
+For REPL-driven development, where seeing the call chain on errors is valuable:
+
+[source, clojure]
+----
+{:throw?                 false   ; log errors but don't crash the REPL
+ :guardrails/compact?    true
+ :guardrails/trace?      true    ; show GR call stack on failures
+ :guardrails/stack-trace :prune} ; show pruned stack trace
+----
+
+IMPORTANT: The `:guardrails/trace?` setting affects code generation at macro-expansion time. Changing it requires
+reloading the affected namespaces to take effect. The same applies to other code-generation options like `:throw?`
+and `:guardrails/mcps`. Dynamic exclusions (see <<dynamic-exclusions>>) remain fully runtime-configurable
+without reloading.
 
 [#check-throttling]
 === Limiting Max Checks Per Second
