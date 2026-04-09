@@ -1,13 +1,14 @@
 (ns com.fulcrologic.guardrails.impl.externs
   (:require
-    #?@(:clj [[clojure.walk :as walk]])
-    [com.fulcrologic.guardrails.registry :as gr.reg]
-    [com.fulcrologic.guardrails.utils :as utils]))
+   #?@(:clj [[clojure.walk :as walk]])
+   [com.fulcrologic.guardrails.registry :as gr.reg]
+   [com.fulcrologic.guardrails.utils :as utils]))
 
 (defonce externs-registry (atom {}))
 (defonce spec-registry (atom {}))
 (defonce function-registry (atom {}))
 (defonce external-function-registry (atom {}))
+(defonce malli-external-function-registry (atom {}))
 
 #?(:clj (try (require 'cljs.analyzer.api) (catch Exception _)))
 
@@ -60,14 +61,14 @@
 
 (defn clean-function [function]
   (-> function
-    (update ::gr.reg/arities
-      (partial utils/map-vals #(dissoc % ::gr.reg/body)))
-    (dissoc ::gr.reg/spec-registry)))
+      (update ::gr.reg/arities
+              (partial utils/map-vals #(dissoc % ::gr.reg/body)))
+      (dissoc ::gr.reg/spec-registry)))
 
 (defn register-function! [NS fn-name function]
   (register-specs! function)
   (swap! function-registry assoc-in [NS fn-name]
-    (clean-function function)))
+         (clean-function function)))
 
 (defn record-defn! [NS {:as function ::gr.reg/keys [fn-name]} externs]
   (register-externs! NS fn-name externs)
@@ -75,11 +76,18 @@
 
 (defn register-external-function! [{:as external-function ::gr.reg/keys [var-name]}]
   (swap! external-function-registry assoc var-name
-    (clean-function external-function)))
+         (clean-function external-function)))
 
 (defn record-fdef! [external-function]
   (register-specs! external-function)
   (register-external-function! external-function))
+
+(defn register-malli-external-function! [{:as external-function ::gr.reg/keys [var-name]}]
+  (swap! malli-external-function-registry assoc var-name
+         (clean-function external-function)))
+
+(defn record-malli-fdef! [external-function]
+  (register-malli-external-function! external-function))
 
 (defn function-info
   "Returns the information known about the given qualified symbol (if it was declared with >defn in
@@ -88,18 +96,18 @@
   (let [spc         (namespace qualified-symbol)
         simple-name (symbol (name qualified-symbol))]
     (or
-      (get @external-function-registry qualified-symbol)
-      (get-in @function-registry [spc simple-name]))))
+     (get @external-function-registry qualified-symbol)
+     (get-in @function-registry [spc simple-name]))))
 
 (defn pure?
   "Returns true if the given fully-qualified symbol was declared with >defn and the arity (which is a number
    or :n) is marked as pure."
   [qualified-symbol arity]
   (boolean
-    (let [info       (function-info qualified-symbol)
-          has-arity? (boolean (get-in info [::gr.reg/arities arity]))
-          {:keys [pure pure?]} (get-in info [::gr.reg/arities (if has-arity? arity :n) ::gr.reg/gspec ::gr.reg/metadata])]
-      (or pure pure?))))
+   (let [info       (function-info qualified-symbol)
+         has-arity? (boolean (get-in info [::gr.reg/arities arity]))
+         {:keys [pure pure?]} (get-in info [::gr.reg/arities (if has-arity? arity :n) ::gr.reg/gspec ::gr.reg/metadata])]
+     (or pure pure?))))
 
 (defn spec-system
   "Returns the function spec system that was used in the type signature of the given symbol, or nil if that
@@ -151,28 +159,28 @@
   [fn-sym scope-ns-prefixes]
   (when-let [externs (get-externs fn-sym)]
     (->> externs
-      (vals)
-      (remove ::gr.reg/macro?)
-      (map ::gr.reg/extern-name)
-      (map (fn [quoted-sym]
+         (vals)
+         (remove ::gr.reg/macro?)
+         (map ::gr.reg/extern-name)
+         (map (fn [quoted-sym]
              ;; extern-name is stored as (quote sym)
-             (if (and (seq? quoted-sym) (= 'quote (first quoted-sym)))
-               (second quoted-sym)
-               quoted-sym)))
-      (filter #(in-scope? % scope-ns-prefixes))
-      (remove #(= % fn-sym))                                ;; Exclude self-references
-      (into #{}))))
+                (if (and (seq? quoted-sym) (= 'quote (first quoted-sym)))
+                  (second quoted-sym)
+                  quoted-sym)))
+         (filter #(in-scope? % scope-ns-prefixes))
+         (remove #(= % fn-sym))                                ;; Exclude self-references
+         (into #{}))))
 
 (defn all-in-scope-functions
   "Returns all function symbols defined with guardrails in namespaces matching scope prefixes."
   [scope-ns-prefixes]
   (->> @function-registry
-    (mapcat (fn [[ns-str fns]]
-              (when (some #(clojure.string/starts-with? ns-str %) scope-ns-prefixes)
-                (map (fn [[fn-name _]]
-                       (symbol ns-str (str fn-name)))
-                  fns))))
-    (into #{})))
+       (mapcat (fn [[ns-str fns]]
+                 (when (some #(clojure.string/starts-with? ns-str %) scope-ns-prefixes)
+                   (map (fn [[fn-name _]]
+                          (symbol ns-str (str fn-name)))
+                        fns))))
+       (into #{})))
 
 (defn transitive-calls
   "Returns all functions transitively called by fn-sym within scope.
@@ -188,7 +196,7 @@
       (let [current (first to-visit)
             calls   (or (direct-calls current scope-ns-prefixes) #{})]
         (recur (into (disj to-visit current) (remove visited calls))
-          (conj visited current))))))
+               (conj visited current))))))
 
 (defn call-graph
   "Returns a map of {fn-sym -> #{called-fn-syms}} for all guardrailed functions
@@ -198,5 +206,5 @@
   [scope-ns-prefixes]
   (let [all-fns (all-in-scope-functions scope-ns-prefixes)]
     (into {}
-      (for [fn-sym all-fns]
-        [fn-sym (direct-calls fn-sym scope-ns-prefixes)]))))
+          (for [fn-sym all-fns]
+            [fn-sym (direct-calls fn-sym scope-ns-prefixes)]))))

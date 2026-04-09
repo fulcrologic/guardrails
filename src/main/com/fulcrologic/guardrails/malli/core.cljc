@@ -187,11 +187,14 @@
                     [name ([params*] gspec) +])}
        [& forms]
        (when-let [cfg (gr.cfg/get-env-config)]
-         (let [env (assoc &env :guardrails/malli? true)]
+         (let [env      (assoc &env :guardrails/malli? true)
+               fn-name  (first forms)
+               external? (and (symbol? fn-name) (namespace fn-name))]
            `(do
               ~(when (#{:pro :all} (gr.cfg/mode cfg))
-                 (gr.pro/>fdef-impl env forms))
-              ~(cond-> (remove nil? (gr.core/generate-fdef env forms))
-                 (cljs-env? &env) clj->cljs)))))
+                 (gr.pro/>malli-fdef-impl env forms))
+              ~(when-not external?
+                 (cond-> (remove nil? (gr.core/generate-fdef env forms))
+                   (cljs-env? &env) clj->cljs))))))
 
      (s/fdef >fdef :args ::gr.core/>fdef-args)))

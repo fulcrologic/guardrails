@@ -1,9 +1,9 @@
 (ns com.fulcrologic.guardrails.impl.pro
   (:require
-    [com.fulcrologic.guardrails.impl.externs :as gr.externs]
-    [com.fulcrologic.guardrails.impl.parser :as gr.parser]
-    [com.fulcrologic.guardrails.registry :as gr.reg]
-    [com.fulcrologic.guardrails.utils :as utils]))
+   [com.fulcrologic.guardrails.impl.externs :as gr.externs]
+   [com.fulcrologic.guardrails.impl.parser :as gr.parser]
+   [com.fulcrologic.guardrails.registry :as gr.reg]
+   [com.fulcrologic.guardrails.utils :as utils]))
 
 (defn compiling-cljs? [env]
   (and (:ns env) (utils/compiling-cljs?)))
@@ -23,8 +23,9 @@
         NS          (env->NS env)
         {:guardrails/keys [spec-system]
          :or              {spec-system :org.clojure/spec1}} (env->namespace-meta env)
+        spec-system (if (:guardrails/malli? opts) :malli spec-system)
         parsed-defn (assoc (gr.parser/parse-defn body externs)
-                      ::gr.reg/spec-system spec-system)]
+                           ::gr.reg/spec-system spec-system)]
     `(do (gr.externs/record-defn! ~NS ~parsed-defn ~externs)
          (var ~(first body)))))
 
@@ -32,6 +33,11 @@
   (let [externs     (gr.externs/extern-symbols env body)
         parsed-fdef (gr.parser/parse-fdef body externs)]
     `(gr.externs/record-fdef! ~parsed-fdef)))
+
+(defn >malli-fdef-impl [env body]
+  (let [externs     (gr.externs/extern-symbols env body)
+        parsed-fdef (gr.parser/parse-fdef body externs)]
+    `(gr.externs/record-malli-fdef! ~parsed-fdef)))
 
 (defn >fspec-impl [env body]
   (let [fspec (gr.parser/parse-fspec body)]
