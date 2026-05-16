@@ -4,7 +4,7 @@ orbs:
 jobs:
   cljs:
     docker:
-      - image: cimg/clojure:1.10.3-browsers
+      - image: cimg/clojure:1.12-openjdk-21.0-browsers
     steps:
       - browser-tools/install_browser_tools:
           install_firefox: false
@@ -23,7 +23,7 @@ jobs:
                 key: cljs-{{ checksum "deps.edn" }}-{{ checksum "package.json" }}
   clj:
     docker:
-      - image: cimg/clojure:1.10.3
+      - image: cimg/clojure:1.12-openjdk-21.0
     steps:
       - checkout
       - restore_cache:
