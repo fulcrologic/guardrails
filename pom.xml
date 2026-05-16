@@ -67,7 +67,7 @@
         <dependency>
             <groupId>org.clojure</groupId>
             <artifactId>clojure</artifactId>
-            <version>1.11.0</version>
+            <version>1.12.5</version>
         </dependency>
         <dependency>
             <groupId>expound</groupId>
@@ -77,7 +77,7 @@
         <dependency>
             <groupId>metosin</groupId>
             <artifactId>malli</artifactId>
-            <version>0.19.2</version>
+            <version>0.20.1</version>
         </dependency>
     </dependencies>
 </project>

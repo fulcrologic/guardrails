@@ -8,7 +8,7 @@
     "karma": "6.4.4",
     "karma-chrome-launcher": "3.2.0",
     "karma-cljs-test": "0.1.0",
-    "shadow-cljs": "2.11.7"
+    "shadow-cljs": "3.4.6"
   },
   "author": "Tony Kay",
   "license": "MIT",

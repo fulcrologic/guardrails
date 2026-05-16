@@ -2,8 +2,9 @@
            "src/clj-kondo"],
 
  :deps    {expound/expound     {:mvn/version "0.9.0"}
-           ;; gnl: Clojure 1.10 is sufficient for clojure.spec, but Malli requires 1.11
-           org.clojure/clojure {:mvn/version "1.11.0"}
+           ;; Clojure 1.12 is required because shadow-cljs 3.x depends on it.
+           ;; (Malli requires 1.11 minimum; clojure.spec works on 1.10+.)
+           org.clojure/clojure {:mvn/version "1.12.5"}
            metosin/malli       {:mvn/version "0.20.1"}}
 
  :aliases {:test      {:extra-paths ["src/test" "src/test-clj-kondo"]
@@ -16,7 +17,7 @@
                        :main-opts   ["-m" "kaocha.runner"]}
 
            :dev       {:extra-paths ["src/dev" "src/test"]
-                       :extra-deps  {thheller/shadow-cljs        {:mvn/version "2.25.8"}
+                       :extra-deps  {thheller/shadow-cljs        {:mvn/version "3.4.6"}
                                      nrepl/nrepl                 {:mvn/version "1.7.0"}
                                      binaryage/devtools          {:mvn/version "1.0.7"}
                                      org.clojure/tools.namespace {:mvn/version "1.5.1"}}}}}
