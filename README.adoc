@@ -546,6 +546,8 @@ For REPL-driven development, where seeing the call chain on errors is valuable:
  :guardrails/stack-trace :prune} ; show pruned stack trace
 ----
 
+You can suppress Guardrails' startup messages with `-Dguardrails.silent=true`.
+
 IMPORTANT: The `:guardrails/trace?` setting affects code generation at macro-expansion time. Changing it requires
 reloading the affected namespaces to take effect. The same applies to other code-generation options like `:throw?`
 and `:guardrails/mcps`. Dynamic exclusions (see <<dynamic-exclusions>>) remain fully runtime-configurable

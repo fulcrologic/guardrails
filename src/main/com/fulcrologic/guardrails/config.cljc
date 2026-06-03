@@ -56,6 +56,8 @@
    There are times when you might want the exclusions to not apply. For example as a library author running
    local tests from the CLI (e.g. kaocha) you don't want your exclusions being included.
 
+   You can suppress startup messages with JVM `-Dguardrails.silent=true`.
+
    You can globally disable exclusions by choosing an alternate config file (with JVM `-Dguardrails.config=filename`)
    and adding a flag:
 
@@ -151,13 +153,14 @@
                          (let [result (merge {} (read-config-file) cljs-compiler-config)]
                            (when-not @warned?
                              (reset! warned? true)
-                             (utils/report-info "GUARDRAILS IS ENABLED. RUNTIME PERFORMANCE WILL BE AFFECTED.")
-                             (utils/report-info (str "Mode: " (mode result) (when (= :runtime (mode result))
-                                                                              (str "  config: " result))))
-                             (utils/report-info (str "Guardrails was enabled because "
-                                                  (if cljs-compiler-config
-                                                    "the CLJS Compiler config enabled it"
-                                                    "the guardrails.enabled property is set to a (any) value."))))
+                             (when-not (System/getProperty "guardrails.silent")
+                               (utils/report-info "GUARDRAILS IS ENABLED. RUNTIME PERFORMANCE WILL BE AFFECTED.")
+                               (utils/report-info (str "Mode: " (mode result) (when (= :runtime (mode result))
+                                                                                (str "  config: " result))))
+                               (utils/report-info (str "Guardrails was enabled because "
+                                                    (if cljs-compiler-config
+                                                      "the CLJS Compiler config enabled it"
+                                                      "the guardrails.enabled property is set to a (any) value.")))))
                            result)))]
           ;#?(:clj (.println System/err config)) ; DEBUG
           config))]
