@@ -153,7 +153,7 @@
                          (let [result (merge {} (read-config-file) cljs-compiler-config)]
                            (when-not @warned?
                              (reset! warned? true)
-                             (when-not (System/getProperty "guardrails.silent")
+                             (when-not #?(:clj (System/getProperty "guardrails.silent") :cljs false)
                                (utils/report-info "GUARDRAILS IS ENABLED. RUNTIME PERFORMANCE WILL BE AFFECTED.")
                                (utils/report-info (str "Mode: " (mode result) (when (= :runtime (mode result))
                                                                                 (str "  config: " result))))
