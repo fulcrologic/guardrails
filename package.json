@@ -2,6 +2,10 @@
   "name": "guardrails",
   "version": "1.0.0",
   "description": "Tests",
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "preinstall": "npx only-allow@1.2.2 pnpm"
+  },
   "main": "index.js",
   "directories": {},
   "devDependencies": {
@@ -12,6 +16,5 @@
   },
   "author": "Tony Kay",
   "license": "MIT",
-  "dependencies": {
-  }
+  "dependencies": {}
 }
