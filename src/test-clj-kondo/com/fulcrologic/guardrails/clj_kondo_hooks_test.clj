@@ -153,3 +153,76 @@
      (reduce + 0 d)
      (+ a b c))))
 "))))
+
+(defn- defprotocol-findings [input-string]
+  (require '[clj-kondo.impl.hooks] :reload)
+  (->> (with-in-str input-string
+         (clj-kondo/run!
+           {:lint   ["-"]
+            :cache  false
+            :config '{:hooks   {:analyze-call
+                                {com.fulcrologic.guardrails.core/>defprotocol
+                                 com.fulcrologic.guardrails.clj-kondo-hooks/>defprotocol
+                                 com.fulcrologic.guardrails.malli.core/>defprotocol
+                                 com.fulcrologic.guardrails.clj-kondo-hooks/>defprotocol}}
+                      :linters {:clj-kondo.fulcro.>defn/invalid-gspec {:level :error}}}}))
+    (:findings)
+    (mapv #(select-keys % [:row :type :message]))))
+
+(deftest >defprotocol-hook-happy-path
+  (is (= []
+        (defprotocol-findings
+          "(ns foo
+  (:require
+    [com.fulcrologic.guardrails.core :refer [>defprotocol]]
+    [com.fulcrologic.guardrails.malli.core :as grm]
+    [clojure.spec.alpha :as s]))
+
+(>defprotocol Foo
+  \"doc\"
+  :extend-via-metadata true
+  (bar [::Foo string? => string?] [::Foo string? int? | #(pos? arg2) => string?] \"bar doc\")
+  (baz [::Foo => (s/nilable int?)]))
+
+(grm/>defprotocol MFoo
+  (mbar [::MFoo :string => :string]))
+
+(defrecord R [] Foo (bar [_ s] s) (bar [_ s _n] s) (baz [_] 1))
+
+(defn uses [x]
+  [(bar x \"a\") (bar x \"a\" 1) (baz x) (mbar x \"s\") (->R)])
+"))))
+
+(deftest >defprotocol-hook-errors
+  (is (= [{:row 8 :type :invalid-arity :message "foo/bar is called with 1 arg but expects 2 or 3"}
+          {:row 8 :type :invalid-arity :message "foo/baz is called with 3 args but expects 1"}
+          {:row 11 :type :clj-kondo.fulcro.>defn/invalid-gspec :message "Gspec requires exactly one `=>` or `:ret`"}
+          {:row 12 :type :clj-kondo.fulcro.>defn/invalid-gspec :message "Duplicate gspec for arity 1."}
+          {:row 13 :type :clj-kondo.fulcro.>defn/invalid-gspec
+           :message "Protocol method gspec needs at least one argument spec (for `this`)."}]
+        (defprotocol-findings
+          "(ns foo
+  (:require [com.fulcrologic.guardrails.core :refer [>defprotocol]]))
+
+(>defprotocol Foo
+  (bar [::Foo string? => string?] [::Foo string? int? => string?])
+  (baz [::Foo => int?]))
+
+(defn uses [x] [(bar x) (baz x 1 2)])
+
+(>defprotocol Bad
+  (q [::Bad string?])
+  (r [::Bad => int?] [::Bad => int?])
+  (t [=> int?]))
+"))))
+
+(deftest >defprotocol-hook-variadic
+  (is (= [{:row 4 :type :clj-kondo.fulcro.>defn/invalid-gspec :message "Variadic gspecs are not supported in >defprotocol."}]
+        (defprotocol-findings
+          "(ns foo
+  (:require [com.fulcrologic.guardrails.core :refer [>defprotocol]]))
+
+(>defprotocol E (e1 [::E int? & int? => int?]))
+
+(defn uses [x] (e1 x 1 2))
+"))))

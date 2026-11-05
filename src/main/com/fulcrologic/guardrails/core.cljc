@@ -13,6 +13,7 @@
    #?@(:clj  [[clojure.set :as set]
               [clojure.walk :as walk]
               [com.fulcrologic.guardrails.impl.pro :as gr.pro]
+              [com.fulcrologic.guardrails.impl.protocol :as gr.proto]
               [com.fulcrologic.guardrails.utils :as utils :refer [cljs-env? clj->cljs strip-colors]]]
        :cljs [[com.fulcrologic.guardrails.impl.externs]
               [com.fulcrologic.guardrails.utils :as utils :refer [strip-colors]]
@@ -860,61 +861,73 @@
                        check-body))})))
 
 #?(:clj
-   (defn- generate-defn
-     [forms private env]
-     (let [conformed-gdefn    (s/conform ::>defn-args forms)
-           conformed-fn-tails (:bs conformed-gdefn)
-           arity              (key conformed-fn-tails)
-           fn-name            (:name conformed-gdefn)
-           docstring          (:docstring conformed-gdefn)
-           {:guardrails/keys [malli?]} env
-           raw-meta-map       (merge
-                               (:meta conformed-gdefn)
-                               {::guardrails true})
-           ;;; Assemble the config
-           {max-checks-per-second :guardrails/mcps
-            :keys                 [defn-macro] :as config}
-           (gr.cfg/merge-config env (meta fn-name) raw-meta-map)
+   (defn- throttle-decls
+     "Returns the `let` bindings that the throttle form (see `throttle-form`) needs when `max-checks-per-second` is a
+     number, otherwise an empty vector."
+     [max-checks-per-second]
+     (if (number? max-checks-per-second)
+       `[~'__gr_vncalls (volatile! 0)
+         ~'__gr_vstart-time (volatile! 0)
+         ~'__gr_reset-stats-ns 5e9
+         ~'__gr_max-calls-per-ns (/ ~max-checks-per-second 9.0e8) ; fudge factor for nano timing inaccuracies
+         ~'__gr_actual-calls (volatile! 0)]
+       [])))
 
-           add-throttling?    (number? max-checks-per-second)
-           defn-sym           (cond
-                                defn-macro (with-meta (symbol defn-macro) {:private private})
-                                private 'defn-
-                                :else 'defn)
-           ;;; Code generation
-           external-fdef-body (generate-external-fspec conformed-fn-tails malli?)
-           fdef               (when external-fdef-body
-                                (if malli?
-                                  ;; REVIEW: Since we're already adding the
-                                  ;; Malli function schema to the metadata
-                                  ;; below, there's probably no need to define
-                                  ;; it here as well.
-                                  nil #_`(malli.core/=> ~fn-name [~@external-fdef-body])
-                                  `(s/fdef ~fn-name ~@external-fdef-body)))
-           meta-map           (merge
-                               raw-meta-map
-                               (when malli? {:malli/schema `[~@external-fdef-body]}))
-           processed-results  (let [process-cfg      {:env     env
-                                                      :config  config
-                                                      :fn-name fn-name}
-                                    fn-tail-or-tails (val conformed-fn-tails)]
-                                (case arity
-                                  :arity-1 [(process-defn-tail process-cfg fn-tail-or-tails)]
-                                  :arity-n (mapv (partial process-defn-tail process-cfg) fn-tail-or-tails)))
-           opts-bindings      (vec (mapcat :bindings processed-results))
-           processed-fn-tails (map :tail processed-results)
-           main-defn          `(~@(remove nil? [defn-sym fn-name docstring meta-map])
-                                ~@processed-fn-tails)
-           throttle-decls     (if add-throttling?
-                                `[~'__gr_vncalls (volatile! 0)
-                                  ~'__gr_vstart-time (volatile! 0)
-                                  ~'__gr_reset-stats-ns 5e9
-                                  ~'__gr_max-calls-per-ns (/ ~max-checks-per-second 9.0e8) ; fudge factor for nano timing inaccuracies
-                                  ~'__gr_actual-calls (volatile! 0)]
-                                [])
-           all-decls          (into throttle-decls opts-bindings)]
-       `(let ~all-decls
-          ~@(remove nil? [fdef main-defn])))))
+#?(:clj
+   (defn- checked-fn-parts
+     "Generates the checking code for the spec-conformed function tails `conformed-fn-tails` (the `:bs` of a
+     `::>defn-args` conform) of the function `fn-name`, using the (fully merged) guardrails `config`. Returns:
+
+     * `:bindings` - A `let` binding vector that must enclose the tails (throttling state and check options).
+     * `:tails` - The checked fn tails `([args] ...)`, one per arity, suitable for `defn` or `fn`."
+     [env config fn-name conformed-fn-tails]
+     (let [process-cfg      {:env env :config config :fn-name fn-name}
+           fn-tail-or-tails (val conformed-fn-tails)
+           processed        (case (key conformed-fn-tails)
+                              :arity-1 [(process-defn-tail process-cfg fn-tail-or-tails)]
+                              :arity-n (mapv (partial process-defn-tail process-cfg) fn-tail-or-tails))]
+       {:bindings (into (throttle-decls (:guardrails/mcps config)) (mapcat :bindings) processed)
+        :tails    (map :tail processed)})))
+
+#?(:clj
+   (defn- generate-defn
+     ([forms private env]
+      (generate-defn forms private env nil))
+     ([forms private env {:keys [inherited-config config-overrides]}]
+      (let [conformed-gdefn    (s/conform ::>defn-args forms)
+            conformed-fn-tails (:bs conformed-gdefn)
+            fn-name            (:name conformed-gdefn)
+            docstring          (:docstring conformed-gdefn)
+            {:guardrails/keys [malli?]} env
+            raw-meta-map       (merge
+                                (:meta conformed-gdefn)
+                                {::guardrails true})
+            ;;; Assemble the config
+            {:keys [defn-macro] :as config}
+            (gr.cfg/merge-config env inherited-config (meta fn-name) raw-meta-map config-overrides)
+
+            defn-sym           (cond
+                                 defn-macro (with-meta (symbol defn-macro) {:private private})
+                                 private 'defn-
+                                 :else 'defn)
+            ;;; Code generation
+            external-fdef-body (generate-external-fspec conformed-fn-tails malli?)
+            fdef               (when external-fdef-body
+                                 (if malli?
+                                   ;; REVIEW: Since we're already adding the
+                                   ;; Malli function schema to the metadata
+                                   ;; below, there's probably no need to define
+                                   ;; it here as well.
+                                   nil #_`(malli.core/=> ~fn-name [~@external-fdef-body])
+                                   `(s/fdef ~fn-name ~@external-fdef-body)))
+            meta-map           (merge
+                                raw-meta-map
+                                (when malli? {:malli/schema `[~@external-fdef-body]}))
+            {:keys [bindings tails]} (checked-fn-parts env config fn-name conformed-fn-tails)
+            main-defn          `(~@(remove nil? [defn-sym fn-name docstring meta-map])
+                                 ~@tails)]
+        `(let ~bindings
+           ~@(remove nil? [fdef main-defn]))))))
 
 #?(:clj
    ;;;; Main macros and public API
@@ -1025,3 +1038,260 @@
 #?(:clj
    (defmacro >fspec [& forms]
      (gr.pro/>fspec-impl &env forms)))
+
+;;;; >defprotocol
+;;
+;; Both platforms emit a REAL `defprotocol` (arglists `[this arg1 ...]` synthesized from the gspecs) and make the
+;; protocol method vars hold guardrails-checked functions when checking is enabled:
+;;
+;; CLJ:  The protocol's `:method-builders` are wrapped with a checking fn, so the `-reset-methods` that `defprotocol`
+;;       and every `extend*` run installs a checked fn into each method var. `:protocol` is removed from the method var
+;;       metadata so that the compiler does not emit its direct interface fast path for call sites (which would bypass
+;;       the var, and therefore the checks and any mocks).
+;; CLJS: The raw dispatch fn is captured in a private var, and the method var is re-defined as a checked `defn` that
+;;       calls the dispatch fn's arity props directly. At compile time the re-def is hidden from the redef warning and
+;;       the var's analyzer entry is demoted to a non-fn-var so that `:static-fns` call sites tolerate mocks.
+
+#?(:clj
+   (defn ^:no-doc -restore-protocol-meta!
+     "INTERNAL. CLJ runtime. Restores `:protocol` on the method vars of `proto-sym` that a previous `>defprotocol`
+     stripped, so that re-evaluating the `defprotocol` does not warn about overwriting the methods."
+     [ns-sym proto-sym method-syms]
+     (when-let [pv (ns-resolve ns-sym proto-sym)]
+       (doseq [m method-syms]
+         (when-let [v (ns-resolve ns-sym m)]
+           (when (= pv (::protocol (meta v)))
+             (alter-meta! v assoc :protocol pv)))))))
+
+#?(:clj
+   (defn ^:no-doc -unprotect-methods!
+     "INTERNAL. CLJ runtime. Replaces `:protocol` in the metadata of the `method-vars` of `protocol-var` (so that call
+     sites compiled from now on call through the var, which keeps them checked and mockable), merging in `extra-meta`
+     (a map from method var to metadata)."
+     [protocol-var method-vars extra-meta]
+     (doseq [v method-vars]
+       (alter-meta! v (fn [vm] (-> vm
+                                   (dissoc :protocol)
+                                   (assoc :redef true ::protocol protocol-var)
+                                   (merge (get extra-meta v))))))
+     protocol-var))
+
+#?(:clj
+   (defn ^:no-doc -install-checks!
+     "INTERNAL. CLJ runtime. Wraps the `:method-builders` of `protocol-var` with `wrapper-factories` (a map from method
+     var to `(fn [built-fn] checked-fn)`), unprotects the method vars (see `-unprotect-methods!`), and re-runs
+     `-reset-methods` so the method vars hold the checked fns."
+     [protocol-var wrapper-factories extra-meta]
+     (alter-var-root protocol-var update :method-builders
+                     (fn [builders]
+                       (into {}
+                             (map (fn [[v build]]
+                                    (if-let [wrap (get wrapper-factories v)]
+                                      [v (fn [cache] (wrap (build cache)))]
+                                      [v build])))
+                             builders)))
+     (-unprotect-methods! protocol-var (keys wrapper-factories) extra-meta)
+     (clojure.core/-reset-methods @protocol-var)
+     protocol-var))
+
+#?(:clj
+   (defn- cljs-compiler-var-value
+     "Returns the value of the var named by the fully-qualified `sym` iff its namespace is already loaded. Used so that
+     CLJ-only users never need ClojureScript on the classpath."
+     [sym]
+     (some-> (find-ns (symbol (namespace sym))) (ns-resolve (symbol (name sym))) deref)))
+
+#?(:clj
+   (defmacro ^:no-doc -allow-redef
+     "INTERNAL. CLJS compile time only. Prepares the analyzer for the checked re-def of the protocol method `sym`:
+
+     * Removes `sym` from the set of vars defined in the current file, so the re-def does not warn `:redef-in-file`.
+     * If `sym` shadows a `cljs.core` name (the `defprotocol` already warned about that), marks the existing var entry
+       private so the re-def does not warn `:redef` a second time. The analyzer replaces the entry on the re-def,
+       so this does not make the method private.
+
+     Expands to nil."
+     [sym]
+     (when-let [file-defs (cljs-compiler-var-value 'cljs.analyzer/*file-defs*)]
+       (swap! file-defs disj sym))
+     (when-let [compiler (cljs-compiler-var-value 'cljs.env/*compiler*)]
+       (let [nsname (-> &env :ns :name)]
+         (swap! compiler (fn [state]
+                           (cond-> state
+                             (contains? (get-in state [:cljs.analyzer/namespaces nsname :excludes]) sym)
+                             (assoc-in [:cljs.analyzer/namespaces nsname :defs sym :private] true))))))
+     nil))
+
+#?(:clj
+   (defmacro ^:no-doc -demote-fn-var
+     "INTERNAL. CLJS compile time only. Marks the analyzed method var `sym` as a non-fn-var, so that `:static-fns` call
+     sites dispatch through `cljs$core$IFn$_invoke$arity$N` only when present (which lets `with-redefs` and mocks
+     install variadic fns). Expands to nil."
+     [sym]
+     (when-let [compiler (cljs-compiler-var-value 'cljs.env/*compiler*)]
+       (swap! compiler update-in [:cljs.analyzer/namespaces (-> &env :ns :name) :defs sym]
+              (fn [m] (-> m
+                          (dissoc :method-params :max-fixed-arity :variadic?)
+                          (assoc :fn-var false)))))
+     nil))
+
+#?(:clj
+   (defn- conform-method!
+     "Conforms the `>defn`-style `method-forms` of a protocol method against `::>defn-args`, throwing a macro-time error
+     that names protocol `psym` if they do not conform."
+     [psym method-forms]
+     (let [conformed (s/conform ::>defn-args method-forms)]
+       (if (s/invalid? conformed)
+         (throw (ex-info (str ">defprotocol " psym ": invalid gspec for method " (first method-forms) "\n"
+                              (with-out-str (s/explain ::>defn-args method-forms)))
+                         {:protocol psym :method (first method-forms)}))
+         conformed))))
+
+#?(:clj
+   (defn- protocol-config
+     "Returns the guardrails config (e.g. `:guardrails/mcps`, `:throw?`) in the metadata of the protocol symbol `psym`,
+     which applies to all of its methods. Other metadata (e.g. `:private`) stays on the protocol."
+     [psym]
+     (into {}
+           (filter (fn [[k _]] (and (keyword? k)
+                                    (or (= "guardrails" (namespace k))
+                                        (#{:throw? :tap>? :disable-exclusions?} k)))))
+           (meta psym))))
+
+#?(:clj
+   (defn- clj-var-ref
+     "Returns a form that resolves the var `sym` of namespace `nsname` at runtime. Protocol method vars are interned
+     when the `defprotocol` runs, so `(var sym)` would fail to compile when `>defprotocol` is not a top-level form."
+     [nsname sym]
+     `(ns-resolve '~nsname '~sym)))
+
+#?(:clj
+   (defn- registration-forms
+     "Returns the forms that register each protocol method with the guardrails function registry (`:pro`/`:all`
+     mode), as `>defn` registers a function. The registered fn reference is the method var, because extending the
+     protocol replaces the var's root."
+     [env nsname methods malli?]
+     (map (fn [{:keys [name] :as method}]
+            (gr.pro/defn-registration env (gr.proto/method-defn-forms method (constantly nil))
+                                      {:guardrails/malli? malli?
+                                       :guardrails/fn-ref (if (cljs-env? env) `(var ~name) (clj-var-ref nsname name))}))
+          methods)))
+
+#?(:clj
+   (defn- clj-checked-expansion
+     [env psym nsname pconfig {:keys [methods]} proto-form def-form register]
+     (let [malli?    (:guardrails/malli? env)
+           generated (mapv (fn [method]
+                             (let [inner     (gensym "inner")
+                                   conformed (conform-method! psym (gr.proto/method-defn-forms method #(list* inner %)))
+                                   fn-name   (:name conformed)
+                                   config    (gr.cfg/merge-config env pconfig (meta fn-name) {::guardrails true})
+                                   {:keys [bindings tails]} (checked-fn-parts env config fn-name (:bs conformed))]
+                               {:var      (clj-var-ref nsname fn-name)
+                                :name     fn-name
+                                :factory  `(let ~bindings (fn [~inner] (fn ~fn-name ~@tails)))
+                                :external (generate-external-fspec (:bs conformed) malli?)}))
+                           methods)]
+       `(do
+          (-restore-protocol-meta! '~nsname '~psym '~(mapv :name methods))
+          ~proto-form
+          ~def-form
+          ~@(when-not malli?
+              (for [{:keys [name external]} generated :when external]
+                `(s/fdef ~(symbol (str nsname) (str name)) ~@external)))
+          (-install-checks! ~(clj-var-ref nsname psym)
+                            ~(into {} (map (juxt :var :factory)) generated)
+                            ~(into {} (map (fn [{:keys [external] :as g}]
+                                             [(:var g) (cond-> {::guardrails true}
+                                                         (and malli? external) (assoc :malli/schema `[~@external]))]))
+                                   generated))
+          ~@register
+          '~psym))))
+
+#?(:clj
+   (defn- clj-pro-expansion
+     "`:pro` mode on CLJ: a plain `defprotocol` (no checks) whose method vars are unprotected, so that calls against
+     inline implementations stay mockable, as `>defn` functions are in `:pro` mode."
+     [psym nsname {:keys [methods]} proto-form def-form register]
+     `(do
+        (-restore-protocol-meta! '~nsname '~psym '~(mapv :name methods))
+        ~proto-form
+        ~def-form
+        (-unprotect-methods! ~(clj-var-ref nsname psym) [~@(map #(clj-var-ref nsname (:name %)) methods)] {})
+        ~@register
+        '~psym)))
+
+#?(:clj
+   (defn- cljs-checked-expansion
+     [env psym pconfig {:keys [methods]} proto-form def-form register]
+     `(do
+        ~proto-form
+        ~def-form
+        ~@(mapcat
+           (fn [{:keys [name gspecs] :as method}]
+             (let [dispatch    (symbol (str name "__gr_dispatch"))
+                   multi?      (> (count gspecs) 1)
+                   ;; The multi-arity dispatch fn refers to its arities through the (re-defined) global name, so
+                   ;; the checked fn must call the captured dispatch fn's arity props directly.
+                   method-defn (gr.proto/method-defn-forms
+                                method
+                                (fn [args]
+                                  (if multi?
+                                    `(. ~dispatch ~(symbol (str "cljs$core$IFn$_invoke$arity$" (count args))) ~@args)
+                                    `(~dispatch ~@args))))]
+               (conform-method! psym method-defn)
+               [`(-allow-redef ~name)
+                `(def ~(vary-meta dispatch assoc :private true :no-doc true) ~name)
+                (clj->cljs (generate-defn method-defn false env {:inherited-config pconfig
+                                                                 :config-overrides {:defn-macro nil}}))
+                `(-demote-fn-var ~name)]))
+           methods)
+        ~@register
+        ~psym)))
+
+#?(:clj
+   (defn >defprotocol*
+     "INTERNAL. The implementation of the spec and Malli flavors of `>defprotocol`. `opts` contains
+     `:guardrails/malli?` and `:guardrails/def-sym` (the flavor's `>def` macro symbol, used to define `::Proto`)."
+     [env form psym body {:guardrails/keys [malli? def-sym]}]
+     (let [cfg        (gr.cfg/get-env-config)
+           mode       (gr.cfg/mode cfg)
+           cljs?      (cljs-env? env)
+           env        (assoc env :form form :guardrails/malli? (boolean malli?))
+           parsed     (gr.proto/parse-body psym body)
+           proto-form (gr.proto/defprotocol-form psym parsed)
+           pconfig    (protocol-config psym)
+           nsname     (if cljs? (-> env :ns :name) (ns-name *ns*))
+           pred       (gr.proto/satisfies-pred psym nsname parsed)
+           def-form   `(~def-sym ~(keyword (str nsname) (name psym)) ~(if malli? [:fn pred] pred))
+           register   (when (#{:pro :all} mode)
+                        (registration-forms env nsname (:methods parsed) malli?))
+           result     (if cljs? psym `'~psym)]
+       (cond
+         (not cfg) `(do ~proto-form ~def-form ~result)
+         (and (= :pro mode) (not cljs?)) (clj-pro-expansion psym nsname parsed proto-form def-form register)
+         (= :pro mode) `(do ~proto-form ~def-form ~@register ~result)
+         cljs? (cljs-checked-expansion env psym pconfig parsed proto-form def-form register)
+         :else (clj-checked-expansion env psym nsname pconfig parsed proto-form def-form register)))))
+
+#?(:clj
+   (defmacro >defprotocol
+     "Like `defprotocol`, but each method arity is declared with a gspec instead of an arglist, and calls to the
+     methods are checked like `>defn` calls. The first argument spec of each gspec describes `this`. The arglists
+     of the generated protocol are `[this arg1 arg2 ...]`.
+
+     ```
+     (>defprotocol Store
+       \"An item store.\"
+       (fetch [::Store uuid? => (? map?)] [::Store uuid? map? => map?] \"Fetches an item, with optional default.\"))
+     ```
+
+     Also defines `::Store` (the ns-qualified keyword of the protocol name) as a spec for values that satisfy the
+     protocol. Method docstrings and protocol options (e.g. `:extend-via-metadata true`) work as in `defprotocol`.
+     See the README for caveats."
+     {:arglists '([name doc-string? & opts+sigs])}
+     [psym & body]
+     (let [env (merge &env `{:guardrails/validate-fn s/valid?
+                             :guardrails/explain-fn  s/explain-data
+                             :guardrails/humanize-fn humanize-spec})]
+       (>defprotocol* env &form psym body {:guardrails/def-sym `>def}))))

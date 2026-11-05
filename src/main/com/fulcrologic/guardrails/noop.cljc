@@ -16,7 +16,8 @@
   `>def` for ones that you want to disappear at runtime.
 
   This will also eliminate the guardrails requires of things like expound, and core.stacktrace."
-  #?(:cljs (:require-macros com.fulcrologic.guardrails.noop)))
+  #?(:cljs (:require-macros com.fulcrologic.guardrails.noop))
+  #?(:clj (:require [com.fulcrologic.guardrails.impl.protocol :as gr.proto])))
 
 (def => :ret)
 (def | :st)
@@ -41,3 +42,8 @@
 #?(:clj (defmacro >fn [& forms] `(fn ~@forms)))
 
 #?(:clj (defmacro >fspec [& forms]))
+
+#?(:clj (defmacro >defprotocol
+          "Emits a plain `defprotocol`, with arglists synthesized from the gspecs. Does not define `::Proto`."
+          [psym & body]
+          (gr.proto/defprotocol-form psym (gr.proto/parse-body psym body))))

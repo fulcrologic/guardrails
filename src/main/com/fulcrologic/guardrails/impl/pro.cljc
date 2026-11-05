@@ -18,16 +18,23 @@
     (-> env :ns :meta)
     (-> *ns* meta)))
 
-(defn >defn-impl [env body opts]
+(defn defn-registration
+  "Returns the form that records the `>defn` `body` in the function registry. `opts` may contain
+   `:guardrails/malli?` and `:guardrails/fn-ref` (a form to register as the function's reference instead of its name)."
+  [env body {:guardrails/keys [fn-ref] :as opts}]
   (let [externs     (gr.externs/extern-symbols env body)
         NS          (env->NS env)
         {:guardrails/keys [spec-system]
          :or              {spec-system :org.clojure/spec1}} (env->namespace-meta env)
         spec-system (if (:guardrails/malli? opts) :malli spec-system)
-        parsed-defn (assoc (gr.parser/parse-defn body externs)
-                           ::gr.reg/spec-system spec-system)]
-    `(do (gr.externs/record-defn! ~NS ~parsed-defn ~externs)
-         (var ~(first body)))))
+        parsed-defn (cond-> (assoc (gr.parser/parse-defn body externs)
+                                   ::gr.reg/spec-system spec-system)
+                      fn-ref (assoc ::gr.reg/fn-ref fn-ref))]
+    `(gr.externs/record-defn! ~NS ~parsed-defn ~externs)))
+
+(defn >defn-impl [env body opts]
+  `(do ~(defn-registration env body opts)
+       (var ~(first body))))
 
 (defn >fdef-impl [env body]
   (let [externs     (gr.externs/extern-symbols env body)

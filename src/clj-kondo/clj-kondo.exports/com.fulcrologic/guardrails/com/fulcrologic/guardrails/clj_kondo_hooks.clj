@@ -75,3 +75,76 @@
                        fn-name
                        post-name))]
     {:node new-node}))
+
+(def ^:private stop-arg-specs? (into =>? |?))
+
+(defn- amp? [node] (= '& (api/sexpr node)))
+
+(defn- without-amp
+  "Returns `gspec` without `&` (variadic gspecs are reported, and the rest of the gspec is still linted)."
+  [gspec]
+  (with-meta (api/vector-node (vec (remove amp? (:children gspec)))) (meta gspec)))
+
+(defn- gspec-arg-count [gspec]
+  (count (take-while (comp not stop-arg-specs? api/sexpr) (:children gspec))))
+
+(defn- protocol-arglist [n]
+  (api/vector-node (into [(api/token-node 'this)]
+                     (map #(api/token-node (symbol (str "arg" %))))
+                     (range 1 n))))
+
+(defn- protocol-method
+  "Validates the gspecs of one `>defprotocol` method node and returns
+   `{:sig <defprotocol method node> :checks [<fn node per gspec>]}`."
+  [method]
+  (let [[mname & sigs] (:children method)
+        gspecs  (map (fn [gspec]
+                       (if-let [amp (first (filter amp? (:children gspec)))]
+                         (do
+                           (api/reg-finding! (merge (meta amp)
+                                               {:message "Variadic gspecs are not supported in >defprotocol."
+                                                :type    :clj-kondo.fulcro.>defn/invalid-gspec}))
+                           (without-amp gspec))
+                         gspec))
+                  (filter #(= :vector (api/tag %)) sigs))
+        docs    (filter #(string? (api/sexpr %)) sigs)
+        seen    (atom #{})
+        checks  (mapv (fn [gspec]
+                        (let [n    (gspec-arg-count gspec)
+                              ;; An empty argv for a gspec without arg specs avoids a second (misleading) finding.
+                              argv (if (zero? n) (api/vector-node []) (protocol-arglist n))]
+                          (when (zero? n)
+                            (api/reg-finding! (merge (meta gspec)
+                                                {:message "Protocol method gspec needs at least one argument spec (for `this`)."
+                                                 :type    :clj-kondo.fulcro.>defn/invalid-gspec})))
+                          (when (contains? @seen n)
+                            (api/reg-finding! (merge (meta gspec)
+                                                {:message (str "Duplicate gspec for arity " n ".")
+                                                 :type    :clj-kondo.fulcro.>defn/invalid-gspec})))
+                          (swap! seen conj n)
+                          ;; The body references the synthesized bindings, so that they are not reported as unused.
+                          (let [[argv gspec'] (args+gspec+body [argv gspec])]
+                            (api/list-node [(api/token-node 'fn) argv
+                                            (api/vector-node (conj (vec (:children argv)) gspec'))]))))
+                  gspecs)]
+    (when (empty? gspecs)
+      (api/reg-finding! (merge (meta method)
+                          {:message "Protocol method requires at least one gspec."
+                           :type    :clj-kondo.fulcro.>defn/invalid-gspec})))
+    {:sig    (api/list-node (concat [mname]
+                              (map (comp protocol-arglist gspec-arg-count) gspecs)
+                              docs))
+     :checks checks}))
+
+(defn >defprotocol
+  "Rewrites `(>defprotocol P doc? opts* (m gspec+ doc?)+)` to a `defprotocol` with `[this argN]` arglists, followed by
+   one `(fn [this argN] gspec)` per arity so the gspecs are validated and linted."
+  [{:keys [node]}]
+  (let [[psym & body] (rest (:children node))
+        parsed   (map (fn [n] (if (= :list (api/tag n)) (protocol-method n) {:sig n})) body)
+        new-node (api/list-node
+                   (list*
+                     (api/token-node 'do)
+                     (api/list-node (list* (api/token-node 'defprotocol) psym (map :sig parsed)))
+                     (mapcat :checks parsed)))]
+    {:node new-node}))

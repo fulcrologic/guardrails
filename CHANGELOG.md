@@ -1,3 +1,10 @@
+# 1.3.5 (unreleased)
+
+* Added `>defprotocol` (spec and Malli flavors, plus a `noop` version): a `defprotocol` whose methods are declared
+  with gspecs. Method calls are checked like `>defn` calls for every kind of implementation, the methods are mockable
+  (with `with-redefs`, `when-mocking!`, `provided!`) with mock validation, and `::Proto` is defined as a "satisfies the
+  protocol" spec/schema. Includes a clj-kondo hook.
+
 # 1.2.5
 
 * Removed async support (new optimizations are better)

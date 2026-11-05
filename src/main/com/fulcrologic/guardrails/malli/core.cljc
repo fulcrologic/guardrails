@@ -198,3 +198,25 @@
                    (cljs-env? &env) clj->cljs))))))
 
      (s/fdef >fdef :args ::gr.core/>fdef-args)))
+
+#?(:clj
+   (defmacro >defprotocol
+     "Like `defprotocol`, but each method arity is declared with a gspec (of Malli schemas) instead of an arglist,
+     and calls to the methods are checked like `>defn` calls. The first argument schema of each gspec describes
+     `this`. The arglists of the generated protocol are `[this arg1 arg2 ...]`.
+
+     ```
+     (>defprotocol Store
+       \"An item store.\"
+       (fetch [::Store :uuid => (? :map)] [::Store :uuid :map => :map] \"Fetches an item, with optional default.\"))
+     ```
+
+     Also registers `::Store` (the ns-qualified keyword of the protocol name) in the guardrails Malli registry as a
+     schema for values that satisfy the protocol. Method docstrings and protocol options (e.g.
+     `:extend-via-metadata true`) work as in `defprotocol`. See the README for caveats."
+     {:arglists '([name doc-string? & opts+sigs])}
+     [psym & body]
+     (let [env (merge &env `{:guardrails/validate-fn validate
+                             :guardrails/explain-fn  explain
+                             :guardrails/humanize-fn humanize-schema})]
+       (gr.core/>defprotocol* env &form psym body {:guardrails/malli? true :guardrails/def-sym `>def}))))

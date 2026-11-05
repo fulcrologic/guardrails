@@ -340,6 +340,86 @@ The `com.fulcrologic.guardrails.malli.core` namespace also has a convenient `>de
 (>def :member/name :string)
 -----
 
+[#defprotocol]
+== Protocols (`>defprotocol`)
+
+`>defprotocol` is a `defprotocol` whose methods are declared with gspecs instead of arglists. Calls to the methods
+are checked exactly like calls to a `>defn`, no matter how the protocol is implemented. It is available in
+both flavors under the same name: `com.fulcrologic.guardrails.core/>defprotocol` (clojure.spec) and
+`com.fulcrologic.guardrails.malli.core/>defprotocol` (Malli).
+
+[source, clojure]
+-----
+(ns app.store
+  (:require
+    [com.fulcrologic.guardrails.malli.core :refer [>defprotocol => ?]]))
+
+(>defprotocol Store
+  "Stores items by id."
+  :extend-via-metadata true                     ; any defprotocol option
+  (fetch
+    [::Store :uuid => (? :map)]                 ; (fetch store id)
+    [::Store :uuid :map => :map]                ; (fetch store id default)
+    "Returns the item with the given id.")
+  (save! [::Store :map => :uuid] "Saves an item, returning its id."))
+-----
+
+* Each gspec declares one arity. The first argument spec describes `this`.
+* The protocol gets synthesized arglists `[this arg1 arg2 ...]`, which you can reference from such-that
+  predicates (e.g. `[::Store :int :int | #(< arg1 arg2) => :int]`).
+* Variadic gspecs are not allowed, and neither are two gspecs for the same arity. Both are macro-time errors.
+* The protocol is a normal protocol. Implement it any way you like: inline in `deftype`/`defrecord`/`reify`,
+  `extend-type`, `extend-protocol` (including `nil`, host types, and `Object`/`default`), `extend` (CLJ),
+  `specify!` (CLJS), or metadata (with `:extend-via-metadata`).
+* Guardrails config on the protocol name or a method name, such as `^{:guardrails/mcps 100}` or `^{:throw? false}`,
+  works like it does on a `>defn` (config on the protocol name applies to all of its methods; other metadata, such as
+  `:private`, stays on the protocol). Exclusions apply per method (e.g. `(exclude-checks! 'app.store/fetch)`). In `:pro`/`:all` mode, the
+  methods are registered in the function registry just like `>defn` functions.
+
+=== The Protocol Spec/Schema
+
+`>defprotocol` also defines the namespace-qualified keyword of the protocol name (`::Store` above) as "a value that
+satisfies the protocol". In the spec flavor that is an `s/def`, and in the Malli flavor a guardrails registry entry.
+For an `:extend-via-metadata` protocol it also accepts values that implement the methods via metadata. As with
+`>def`, the Malli entry is only registered when guardrails is enabled.
+
+=== Mocking
+
+Methods carry the same function spec (`s/fdef`, or `:malli/schema` var metadata) that a `>defn` has. That means
+`with-redefs`, and fulcro-spec's `when-mocking!`/`provided!` (including their validation of mock arguments and
+return values), work on protocol methods, whichever implementation the code under test receives:
+
+[source, clojure]
+-----
+(provided! "the store has the item"
+  (fetch store id) => {:item/id id}
+  (assertions
+    (load-item the-store id) => {:item/id id}))
+-----
+
+=== Caveats
+
+* *Inline implementations are only mockable while guardrails is enabled.* On CLJ that is any mode, including
+  `:pro` (which, as for `>defn`, has no checks or mock validation). With guardrails disabled you get a plain
+  `defprotocol`, so a call against a `deftype`/`defrecord`/`reify` that implements the protocol inline takes
+  Clojure's direct interface path, which bypasses the var (and `with-redefs`). On CLJS the same is true of direct
+  protocol calls under `:static-fns` when guardrails is disabled or in `:pro` mode.
+* *Explicit interop bypasses checks.* `(.fetch ^Store x id)` calls the interface method directly.
+* *Call sites compiled before (or without) guardrails bypass checks.* The checks live in the method var, and call
+  sites only use it if they are compiled after the `>defprotocol` was evaluated with guardrails enabled.
+* *Reload inline implementations after reloading the protocol.* This is the same rule as for `defprotocol`:
+  re-evaluating it creates a new interface, so existing `deftype`/`defrecord` classes no longer implement it.
+* *Shadow-cljs caching.* The CLJS expansion (including an adjustment of the compiler's analyzer data for the method
+  vars) is cached by shadow-cljs like any other compiled code. Enabling guardrails through the build's
+  `:compiler-options {:external-config {:guardrails ...}}` is part of shadow's cache key. Toggling the
+  `guardrails.enabled` JVM property is not (this is also true for `>defn`), so clear the shadow-cljs cache
+  (`.shadow-cljs/builds`) when you switch that way.
+* *Method names that shadow `clojure.core`/`cljs.core` names* (e.g. `name`) produce the same "being replaced"
+  warning as a plain `defprotocol` does. Add them to `(:refer-clojure :exclude [...])` to avoid it.
+* With guardrails disabled, and in production (`:advanced`) builds, `>defprotocol` emits a plain `defprotocol`,
+  and none of the checking code. The `noop` namespace also has a `>defprotocol`, which emits only the
+  `defprotocol`.
+
 == Configuration
 
 === Enabling

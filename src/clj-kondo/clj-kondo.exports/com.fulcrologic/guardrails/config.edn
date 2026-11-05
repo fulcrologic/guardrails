@@ -8,7 +8,16 @@
                           com.fulcrologic.guardrails.clj-kondo-hooks/>defn
 
                           com.fulcrologic.guardrails.malli.core/>defn-
-                          com.fulcrologic.guardrails.clj-kondo-hooks/>defn}}
+                          com.fulcrologic.guardrails.clj-kondo-hooks/>defn
+
+                          com.fulcrologic.guardrails.core/>defprotocol
+                          com.fulcrologic.guardrails.clj-kondo-hooks/>defprotocol
+
+                          com.fulcrologic.guardrails.malli.core/>defprotocol
+                          com.fulcrologic.guardrails.clj-kondo-hooks/>defprotocol
+
+                          com.fulcrologic.guardrails.noop/>defprotocol
+                          com.fulcrologic.guardrails.clj-kondo-hooks/>defprotocol}}
  :linters {:clj-kondo.fulcro.>defn/invalid-gspec {:level :error}}
  :lint-as {com.fulcrologic.guardrails.core/>def            clojure.spec.alpha/def
            com.fulcrologic.guardrails.malli.core/>def      clojure.spec.alpha/def
